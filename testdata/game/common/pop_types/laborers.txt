@@ -1,0 +1,1 @@
+laborers = { wage_weight = 1 }

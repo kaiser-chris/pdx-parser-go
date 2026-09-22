@@ -1,0 +1,1 @@
+INJECT:pmg_steelmaking = { production_methods = { pm_open_hearth } }

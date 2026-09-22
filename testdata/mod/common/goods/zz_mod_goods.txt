@@ -1,0 +1,3 @@
+# The mod adds a good and makes steel dearer.
+aluminium = { texture = "aluminium.dds" cost = 70 category = industrial }
+INJECT:steel = { cost = 55 }

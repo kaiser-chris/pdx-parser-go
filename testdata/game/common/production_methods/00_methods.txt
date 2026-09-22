@@ -1,0 +1,10 @@
+pm_bessemer = {
+	building_modifiers = {
+		workforce_scaled = {
+			goods_input_iron_add = 60
+			goods_input_coal_add = 30
+			goods_output_steel_add = 90
+		}
+		level_scaled = { building_employment_laborers_add = 3000 }
+	}
+}

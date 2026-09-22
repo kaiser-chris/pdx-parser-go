@@ -1,0 +1,9 @@
+pm_open_hearth = {
+	building_modifiers = {
+		workforce_scaled = {
+			goods_input_iron_add = 90
+			goods_input_coal_add = 30
+			goods_output_steel_add = 120
+		}
+	}
+}

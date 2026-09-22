@@ -1,0 +1,9 @@
+# Test and profiling output
+*.test
+*.test.exe
+*.out
+/coverage.*
+
+# IDE
+/.vscode/
+/.idea/

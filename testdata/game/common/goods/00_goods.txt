@@ -1,0 +1,4 @@
+# The example game's goods.
+iron = { texture = "iron.dds" cost = 40 category = industrial }
+coal = { texture = "coal.dds" cost = 30 category = industrial }
+steel = { texture = "steel.dds" cost = 50 category = industrial }
