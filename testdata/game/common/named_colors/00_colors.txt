@@ -1,0 +1,8 @@
+colors = {
+	red =		hsv360 { 1 95 55 }
+	white =		rgb { 255 255 255 }
+	blue =		rgb { 0.1 0.2 0.6 }
+
+	# A colour may be written as one defined before it.
+	crimson =	"red"
+}

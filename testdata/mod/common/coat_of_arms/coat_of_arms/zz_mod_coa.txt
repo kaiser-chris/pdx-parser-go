@@ -1,0 +1,13 @@
+# The mod repaints the game's flag and adds one of its own.
+INJECT:EXA = { color1 = "crimson" }
+
+MOD = {
+	pattern = "pattern_solid.tga"
+	color1 = "blue"
+
+	colored_emblem = {
+		texture = "ce_star.dds"
+		color1 = "white"
+		mask = { 1 }
+	}
+}

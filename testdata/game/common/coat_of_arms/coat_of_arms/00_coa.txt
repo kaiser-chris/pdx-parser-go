@@ -1,0 +1,34 @@
+@half = @[ 1 / 2 ]
+
+EXA = {
+	pattern = "pattern_solid.tga"
+	color1 = "red"
+	color2 = "white"
+
+	colored_emblem = {
+		texture = "ce_star.dds"
+		color1 = color2
+		instance = { position = { @half 0.5 } scale = { 0.6 0.6 } }
+		instance = { position = { 0.25 0.5 } scale = { 0.3 0.3 } rotation = 45 }
+	}
+}
+
+EXB = {
+	pattern = "pattern_vertical_split.tga"
+	color1 = "blue"
+	color2 = "white"
+
+	textured_emblem = { texture = "te_eagle.dds" }
+
+	sub = {
+		parent = "EXA"
+		instance = { offset = { 0.5 0 } scale = { 0.5 1 } }
+	}
+}
+
+template = {
+	template_plain = {
+		pattern = list "pattern_plain"
+		color1 = list "normal_colors"
+	}
+}

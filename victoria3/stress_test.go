@@ -53,6 +53,25 @@ func decodeEverything(input string) *Data {
 
 	link(data, collector)
 
+	// The coats of arms are decoded from the same document, and every value
+	// they hand out is asked for: a layer's placements, and a colour
+	// resolved against the palette read from the same input.
+	palette := Palette{}
+	readColors(script.Node{Kind: script.KindBlock, Fields: document.Fields}, palette, file, collector)
+
+	arms := database.Decode(store("coat of arms"), collector,
+		func(r *database.Reader, _ *database.Definition) *CoatOfArms { return decodeCoatOfArms(r) })
+
+	for _, coatOfArms := range arms.All() {
+		for _, layer := range coatOfArms.Layers {
+			layer.Placements()
+		}
+
+		for _, color := range coatOfArms.Colors {
+			color.Resolve(palette, coatOfArms.Colors)
+		}
+	}
+
 	// Resolving costs as much as the group is deep, which is a few levels in
 	// any real game, so a sample is enough; resolving every group of a
 	// thirty thousand deep chain would only measure the test.
@@ -248,6 +267,8 @@ func FuzzDecode(f *testing.F) {
 		"bg_a = { parent_group = bg_b } bg_b = { parent_group = bg_a }",
 		"t1 = { era = era_1 unlocking_technologies = { t2 } } t2 = { unlocking_technologies = { t1 } }",
 		"NEconomy = { PRICE_RANGE = 0.75 }",
+		`TST = { pattern = "p.tga" color1 = "red" color2 = color1 colored_emblem = { texture = list "x" mask = { 2 } instance = { position = { 0.5 } rotation = 90 } } sub = { parent = "TST" } }`,
+		"colors = { red = hsv360 { 1 95 55 } blue = rgb { 0 0 1 } same = red }",
 	} {
 		f.Add(seed)
 	}

@@ -157,3 +157,118 @@ func itoa(value int) string {
 
 	return string(digits)
 }
+
+// TestLoadInstalledCoatOfArms reads the coats of arms of a real installation.
+// As with the economy, vanilla on its own must load without a warning, but
+// for the typos the game ships and reads past.
+func TestLoadInstalledCoatOfArms(t *testing.T) {
+	sources := installedSources(t)
+	heraldry := LoadHeraldry(folders.Open(sources))
+
+	counts := map[string]int{}
+	for _, diagnostic := range heraldry.Diagnostics {
+		counts[diagnostic.Severity.String()+": "+diagnostic.Message]++
+	}
+
+	for _, line := range sortedCounts(counts) {
+		t.Log(line)
+	}
+
+	t.Logf("coats of arms %d, templates %d, named colours %d, textures %d",
+		heraldry.CoatOfArms.Len(), heraldry.Templates.Len(), len(heraldry.Colors), len(heraldry.Textures))
+
+	if len(sources) == 1 {
+		for _, diagnostic := range heraldry.Diagnostics.Filter(report.SeverityWarning) {
+			// A stray bracket inside a position, and the like: the game reads
+			// past its own typos and so does this, which is what the warning
+			// says.
+			if strings.Contains(diagnostic.Message, "unexpected character") {
+				continue
+			}
+
+			t.Errorf("vanilla should load cleanly: %s", diagnostic)
+		}
+	}
+
+	if heraldry.CoatOfArms.Len() < 100 || len(heraldry.Textures) < 100 {
+		t.Errorf("read %d coats of arms and %d textures, want the thousands the game ships",
+			heraldry.CoatOfArms.Len(), len(heraldry.Textures))
+	}
+
+	// Every picture and every sub coat of arms named should be one the game
+	// has, which is the check that the files were understood. Colours are
+	// only counted: the shipped files name a few colours that nothing
+	// defines, and the game draws those coats of arms all the same.
+	textures := map[string]bool{}
+	for _, texture := range heraldry.Textures {
+		textures[strings.ToLower(filepath.Base(texture.Relative))] = true
+	}
+
+	unresolved := 0
+
+	for key, arms := range heraldry.CoatOfArms.All() {
+		unresolved += checkArms(t, heraldry, textures, key, arms)
+	}
+
+	t.Logf("%d colours name something nothing defines", unresolved)
+}
+
+// checkArms reports every picture and sub coat of arms a coat of arms names
+// that nothing has, and returns how many of its colours resolve to nothing.
+func checkArms(t *testing.T, heraldry *Heraldry, textures map[string]bool, key string, arms *CoatOfArms) int {
+	t.Helper()
+
+	picture := func(what string, texture Texture) {
+		if texture.File != "" && !textures[strings.ToLower(texture.File)] {
+			t.Errorf("%s: %s %s is not among the game's pictures", key, what, texture.File)
+		}
+	}
+
+	unresolved := 0
+
+	count := func(own, flag Colors) {
+		for _, color := range own {
+			if _, ok := color.Resolve(heraldry.Colors, flag); !ok {
+				if _, random := color.Value.(ListColor); !random {
+					unresolved++
+				}
+			}
+		}
+	}
+
+	picture("pattern", arms.Pattern)
+	count(arms.Colors, arms.Colors)
+
+	for _, layer := range arms.Layers {
+		switch typed := layer.(type) {
+		case *ColoredEmblem:
+			picture("colored emblem", typed.Texture)
+			count(typed.Colors, arms.Colors)
+
+		case *TexturedEmblem:
+			picture("textured emblem", typed.Texture)
+
+		case *SubCoatOfArms:
+			if !heraldry.CoatOfArms.Has(typed.Parent) {
+				t.Errorf("%s: sub coat of arms %s is not defined", key, typed.Parent)
+			}
+
+			count(typed.Colors, arms.Colors)
+		}
+	}
+
+	return unresolved
+}
+
+// sortedCounts turns a table of messages and how often each was reported into
+// lines, in order.
+func sortedCounts(counts map[string]int) []string {
+	lines := make([]string, 0, len(counts))
+	for line, count := range counts {
+		lines = append(lines, line+" ("+itoa(count)+")")
+	}
+
+	sort.Strings(lines)
+
+	return lines
+}

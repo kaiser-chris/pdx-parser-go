@@ -1,7 +1,14 @@
-// Package victoria3 reads the economic definitions of Victoria 3 and its
-// mods: goods, buildings and their groups, production methods and their
-// groups, pop types, pop needs, buy packages, companies, technologies, eras and
-// defines.
+// Package victoria3 reads the definitions of Victoria 3 and its mods: the
+// economy, and the coats of arms.
+//
+// The economy is goods, buildings and their groups, production methods and
+// their groups, pop types, pop needs, buy packages, companies, technologies,
+// eras and defines. Load reads all of it.
+//
+// The coats of arms are the flags of the countries: a pattern with emblems
+// drawn over it, in named colours, from common/coat_of_arms. LoadHeraldry
+// reads them, apart from the economy, because a game and its mods hold
+// thousands of them and only a tool that draws flags has any use for them.
 //
 // This is the part of the module that follows the game. Its types describe the
 // fields the game's files use as of version 1.13, and a game update that adds
@@ -24,6 +31,14 @@
 //
 // Loading never fails. Everything worth knowing about the files, from syntax
 // errors to references to things that do not exist, is in Data.Diagnostics.
+//
+// The same holds for the coats of arms:
+//
+//	heraldry := victoria3.LoadHeraldry(set)
+//
+//	arms, _ := heraldry.CoatOfArms.Get("TUR")
+//	color, _ := arms.Colors.Get("color1")
+//	fmt.Println(color.Resolve(heraldry.Colors, arms.Colors))
 package victoria3
 
 import (

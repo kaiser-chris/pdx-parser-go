@@ -29,7 +29,7 @@ none of the general packages depend on any particular game.
 | [`folders`](folders) | Works out which files the game reads from the game and its mods, and in what order. | `script`, `report` | Follows the engine. |
 | [`database`](database) | Reads database folders such as `common/goods`: applies `INJECT:`, `REPLACE:` and the other modes, tracks where every part came from, and decodes definitions into your own types with a tolerant field reader. Also reads defines. | `script`, `folders`, `report` | Follows the engine. |
 | [`localization`](localization) | Parses and loads localization files, with `replace` folders. | `folders`, `report` | Follows the engine. |
-| [`victoria3`](victoria3) | The economy of Victoria 3: goods, buildings, production methods, pops, companies, technologies and eras. | all of the above | **Follows the game.** Written against 1.13. |
+| [`victoria3`](victoria3) | The economy of Victoria 3: goods, buildings, production methods, pops, companies, technologies and eras. Also its coats of arms and named colours. | all of the above | **Follows the game.** Written against 1.13. |
 
 `victoria3` is the one package expected to date. When the game adds or renames
 fields it keeps working, reporting what it does not know, but its types need
@@ -92,6 +92,28 @@ laws := database.Decode(store, collector, func(r *database.Reader, _ *database.D
 	return &Law{Group: r.Text("group")}
 })
 ```
+
+### Reading the coats of arms
+
+```go
+heraldry := victoria3.LoadHeraldry(set)
+
+arms, _ := heraldry.CoatOfArms.Get("TUR")
+fmt.Println(arms.Pattern.File) // pattern_solid.tga
+
+color, _ := arms.Colors.Get("color1")
+fmt.Println(color.Resolve(heraldry.Colors, arms.Colors)) // the named colour, resolved
+
+for _, layer := range arms.Layers {
+	emblem, ok := layer.(*victoria3.ColoredEmblem)
+	if ok {
+		fmt.Println(emblem.Texture.File, emblem.Placements())
+	}
+}
+```
+
+The coats of arms of Europa Universalis 5 are written the same way and are
+read by the same code, layers, mods and all.
 
 ### Localization
 

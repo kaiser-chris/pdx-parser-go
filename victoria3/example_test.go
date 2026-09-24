@@ -60,3 +60,47 @@ func ExampleResolveGroup() {
 	// Output:
 	// true true
 }
+
+// The coats of arms are read apart from the economy. The example mod repaints
+// the game's flag by injecting a colour into it, adds one of its own, and
+// replaces one of the game's emblem files.
+func ExampleLoadHeraldry() {
+	set := folders.Open([]folders.Source{
+		{Name: "Victoria 3", Path: "../testdata/game"},
+		{Path: "../testdata/mod"},
+	})
+
+	heraldry := victoria3.LoadHeraldry(set)
+
+	fmt.Println(heraldry.CoatOfArms.Keys(), heraldry.Templates.Keys())
+
+	arms, _ := heraldry.CoatOfArms.Get("EXA")
+	fmt.Println(arms.Pattern.File, len(arms.Layers), "layer")
+
+	first, _ := arms.Colors.Get("color1")
+	fmt.Println("color1 is", first.Value.Describe(), "from", arms.Origins[len(arms.Origins)-1].Source)
+
+	red, _ := first.Resolve(heraldry.Colors, arms.Colors)
+	fmt.Printf("which is %d %d %d\n", red.R, red.G, red.B)
+
+	emblem := arms.Layers[0].(*victoria3.ColoredEmblem)
+	for _, placement := range emblem.Placements() {
+		fmt.Println(emblem.Texture.File, "at", placement.Position, "scaled", placement.Scale)
+	}
+
+	for _, texture := range heraldry.Textures {
+		fmt.Println(texture.Kind, texture.Relative, "from", texture.Source)
+	}
+
+	// Output:
+	// [EXA EXB MOD] [template_plain]
+	// pattern_solid.tga 1 layer
+	// color1 is crimson from Example Mod
+	// which is 140 9 7
+	// ce_star.dds at {0.5 0.5} scaled {0.6 0.6}
+	// ce_star.dds at {0.25 0.5} scaled {0.3 0.3}
+	// pattern gfx/coat_of_arms/patterns/pattern_solid.tga from Victoria 3
+	// pattern gfx/coat_of_arms/patterns/pattern_vertical_split.tga from Victoria 3
+	// colored emblem gfx/coat_of_arms/colored_emblems/ce_star.dds from Example Mod
+	// textured emblem gfx/coat_of_arms/textured_emblems/te_eagle.dds from Victoria 3
+}
