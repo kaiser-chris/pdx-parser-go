@@ -29,6 +29,7 @@ none of the general packages depend on any particular game.
 | [`folders`](folders) | Works out which files the game reads from the game and its mods, and in what order. | `script`, `report` | Follows the engine. |
 | [`database`](database) | Reads database folders such as `common/goods`: applies `INJECT:`, `REPLACE:` and the other modes, tracks where every part came from, and decodes definitions into your own types with a tolerant field reader. Also reads defines. | `script`, `folders`, `report` | Follows the engine. |
 | [`localization`](localization) | Parses and loads localization files, with `replace` folders. | `folders`, `report` | Follows the engine. |
+| [`asset`](asset) | Reads the 3D asset definitions in the `.asset` files anywhere below `gfx`: the `pdxmesh` and `entity` definitions, the references between them, and the files they name. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`victoria3`](victoria3) | The economy of Victoria 3: goods, buildings, production methods, pops, companies, technologies and eras. Also its coats of arms and named colours. | all of the above | **Follows the game.** Written against 1.13. |
 
 `victoria3` is the one package expected to date. When the game adds or renames
@@ -122,6 +123,25 @@ english := localization.Load(set, "english")
 fmt.Println(english.Name("steel")) // Steel, or a mod's text from a replace folder
 ```
 
+### 3D assets
+
+```go
+assets := asset.Load(set)
+
+entity, _ := assets.Entities.Get("female_body_entity")
+mesh, _ := assets.MeshOf(entity.Key) // its own mesh, or that of the entity it clones
+
+fmt.Println(asset.Resolve(mesh.Origin(), mesh.File)) // gfx/models/portraits/female_body/female_body.mesh
+
+for _, shape := range mesh.BlendShapes {
+	fmt.Println(shape.ID, shape.File)
+}
+```
+
+The asset files of Europa Universalis 5 are read by the same code, and what it
+writes that Victoria 3 does not, such as a state's chance that depends on the
+state before it, is read too.
+
 ## Robustness
 
 The games read past the odd typo, and so must a tool. What each layer does
@@ -139,11 +159,17 @@ with input that does not fit:
   between definitions that does not resolve is reported and kept.
 - **localization** keeps an entry with a missing colon or an unclosed quote, and
   reports it.
+- **asset** skips a definition without a name, which nothing could refer to,
+  reads the rest the way **database** does, and reports a reference to a mesh
+  or entity that does not exist, and a chain of clones that loops, without
+  losing the definition.
 
 The test suites include hostile input written by hand, random input, inputs of
 several megabytes shaped to expose quadratic steps, and fuzz targets for every
 parser. The shipped economy files of Victoria 3 and all eleven of its languages
-load without a single warning.
+load without a single warning. The asset files of Victoria 3 and Europa
+Universalis 5 load without a field left unread and without a warning beyond
+the typos and broken references in the files themselves.
 
 The general packages have also been run over every database folder,
 localization and define of Europa Universalis 5 and Crusader Kings 3, with
@@ -206,7 +232,7 @@ from the files, and `localization.Load` documents it.
 
 The module follows [semantic versioning](https://semver.org). Until 1.0 the API
 may still change between minor versions. After 1.0, `script`, `report`,
-`folders`, `database` and `localization` keep their API; `victoria3` may add
+`folders`, `database`, `localization` and `asset` keep their API; `victoria3` may add
 fields in minor versions as the game changes, and only removes or renames them
 in a major version.
 

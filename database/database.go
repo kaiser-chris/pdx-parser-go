@@ -260,15 +260,32 @@ func (s *Store) AddDocument(document *script.Document, file folders.File, collec
 func (s *Store) Add(field script.Field, comment string, file folders.File, collector *report.Collector) {
 	mode, key, known := SplitKey(field.Key)
 
+	if !known {
+		prefix, _, _ := strings.Cut(field.Key, ":")
+		collector.Addf(report.SeverityWarning, file.Source, file.Path, field.Line, field.Column, s.Subject(key),
+			"unknown modification %s:, read as a plain definition", prefix)
+	}
+
+	s.add(mode, key, field, comment, file, collector)
+}
+
+// AddNamed reads one field of a file as a definition under a key the caller
+// has worked out, rather than the field's own key.
+//
+// It is for files whose definitions all share one field key and carry their
+// name inside, such as the entity = { name = "..." } of the .asset files.
+// The key is taken as it is, so there is no modification prefix to apply: a
+// definition of a key that exists already overrides it completely, as a
+// plain key does in Add.
+func (s *Store) AddNamed(key string, field script.Field, comment string, file folders.File, collector *report.Collector) {
+	s.add(ModeCreate, key, field, comment, file, collector)
+}
+
+func (s *Store) add(mode Mode, key string, field script.Field, comment string, file folders.File, collector *report.Collector) {
 	origin := Origin{Source: file.Source, File: file.Relative, Path: file.Path, Line: field.Line, Mode: mode}
 
 	note := func(severity report.Severity, format string, args ...any) {
 		collector.Addf(severity, origin.Source, origin.Path, field.Line, field.Column, s.Subject(key), format, args...)
-	}
-
-	if !known {
-		prefix, _, _ := strings.Cut(field.Key, ":")
-		note(report.SeverityWarning, "unknown modification %s:, read as a plain definition", prefix)
 	}
 
 	if field.Operator != script.OpEquals {

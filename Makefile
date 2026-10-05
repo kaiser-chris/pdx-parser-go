@@ -18,6 +18,7 @@ fuzz:
 	go test ./script -run '^$$' -fuzz FuzzParse -fuzztime $(FUZZTIME)
 	go test ./localization -run '^$$' -fuzz FuzzParse -fuzztime $(FUZZTIME)
 	go test ./victoria3 -run '^$$' -fuzz FuzzDecode -fuzztime $(FUZZTIME)
+	go test ./asset -run '^$$' -fuzz FuzzRead -fuzztime $(FUZZTIME)
 
 ## cover: show test coverage by package
 cover:

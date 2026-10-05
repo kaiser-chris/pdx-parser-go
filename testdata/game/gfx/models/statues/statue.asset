@@ -1,0 +1,39 @@
+pdxmesh = {
+	name = "statue_mesh"
+	file = "statue.mesh"
+	scale = 2
+
+	animation = { id = "idle_animation" type = "../animation/statue_idle.anim" }
+	blend_shape = { id = "statue_bs_weathered" type = "statue_bs_weathered.mesh" }
+
+	meshsettings = {
+		name = "statueShape"
+		index = 0
+		texture_diffuse = "statue_diffuse.dds"
+		texture_normal = "statue_normal.dds"
+		texture_specular = "statue_properties.dds"
+		shader = "standard"
+		shader_file = "gfx/FX/pdxmesh.shader"
+	}
+
+	lod_percentages = {
+		lod = { index = 1 percent = 25 }
+		lod = { index = 2 percent = inf }
+	}
+}
+
+entity = {
+	name = "statue_entity"
+	pdxmesh = "statue_mesh"
+	default_state = "idle"
+
+	attribute = { name = "weathering" blend_shape = "statue_bs_weathered" }
+
+	state = { name = "idle" animation = "idle_animation" looping = yes }
+
+	locator = { name = "plinth" position = { 0 1.5 0 } rotation = { 0 90 0 } }
+}
+
+entity = {
+	name = "wreath_entity"
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kaiser-chris/pdx-parser-go/folders"
 	"github.com/kaiser-chris/pdx-parser-go/report"
+	"github.com/kaiser-chris/pdx-parser-go/script"
 )
 
 // thing is a made-up kind of definition, so that these tests show the package
@@ -415,4 +416,41 @@ func TestDefinitionsThatAreNoBlocks(t *testing.T) {
 	}
 
 	expect(t, collector.Diagnostics, report.SeverityWarning, "thing negative: ignored, because its value -0.5 is not a block")
+}
+
+// TestAddNamed covers definitions that carry their name inside, all under one
+// field key, the way the .asset files write theirs. The name given is the
+// key, without a modification prefix read from it, and a second definition
+// of a name overrides the first completely.
+func TestAddNamed(t *testing.T) {
+	document := script.Parse(`
+thing = { name = "INJECT:odd" size = 1 }
+thing = { name = "plain" size = 2 }
+thing = { name = "plain" label = "Again" }
+`)
+
+	file := folders.File{Relative: "gfx/things.asset", Path: "things.asset", Source: "game"}
+	collector := &report.Collector{}
+	store := NewStore("thing")
+
+	for _, field := range document.Fields {
+		name, _ := field.Value.Get("name")
+		store.AddNamed(name.Text, field, "", file, collector)
+	}
+
+	if want := []string{"INJECT:odd", "plain"}; !slices.Equal(store.Keys(), want) {
+		t.Errorf("keys = %v, want %v", store.Keys(), want)
+	}
+
+	odd, _ := store.Get("INJECT:odd")
+	if odd.Origin().Mode != ModeCreate {
+		t.Errorf("INJECT:odd was read with mode %v, want a plain definition", odd.Origin().Mode)
+	}
+
+	plain, _ := store.Get("plain")
+	if _, ok := plain.Field("size"); ok || len(plain.Overridden) != 1 || plain.Origin().Line != 4 {
+		t.Errorf("plain = %+v, want the second definition alone, overriding the first", plain)
+	}
+
+	expect(t, collector.Diagnostics, report.SeverityInfo, "thing plain: overrides the definition in gfx/things.asset from game")
 }

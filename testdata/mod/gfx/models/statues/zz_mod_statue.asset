@@ -1,0 +1,7 @@
+# A statue of the mod's own: the game's, with a wreath on its plinth.
+entity = {
+	name = "wreathed_statue_entity"
+	clone = "statue_entity"
+
+	attach = { name = decoration plinth = "wreath_entity" }
+}
