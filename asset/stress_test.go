@@ -21,6 +21,10 @@ func readEverything(input string) (*Assets, report.Diagnostics) {
 	for _, mesh := range assets.Meshes.All() {
 		Resolve(mesh.Origin(), mesh.File)
 
+		for _, animation := range assets.AnimationsOf(mesh) {
+			Resolve(animation.Origin, animation.File)
+		}
+
 		for _, animation := range mesh.Animations {
 			Resolve(mesh.Origin(), animation.File)
 		}
@@ -93,8 +97,11 @@ func TestHostileShapes(t *testing.T) {
 		"file", "scale", "cull_distance", "animation", "additive_animation", "blend_shape", "lod_percentages",
 		"meshsettings", "meshsettings = { index", "meshsettings = { texture", "meshsettings = { additional_shader_defines",
 		"meshsettings = { shadow_shader", "lod_percentages = { lod", "lod_percentages = { lod = { percent",
-		"blend_shape = { id", "animation = { type",
+		"blend_shape = { id", "animation = { type", "import", "import = { type", "import = { name", "streaming",
+		"meshsettings = { rasterizerstate",
 	}
+
+	setFields := []string{"reference_skeleton", "animation", "animation = { id", "animation = { type"}
 
 	entityFields := []string{
 		"pdxmesh", "clone", "scale", "cull_radius", "default_state", "get_state_from_parent", "meshsettings",
@@ -102,7 +109,8 @@ func TestHostileShapes(t *testing.T) {
 		"state = { time_offset", "state = { propagate_state", "state = { event", "state = { start_event",
 		"state = { event = { sound", "state = { event = { soundparameter", "locator", "locator = { position",
 		"locator = { rotation", "attach", "attach = { name", "attach = { pos", "group", "group = { attach",
-		"group = { attach = { chance", "game_data",
+		"group = { attach = { chance", "game_data", "state = { chance = { default",
+		"state = { event = { sound = { stop_on_state_change",
 	}
 
 	shapes := []string{
@@ -117,7 +125,9 @@ func TestHostileShapes(t *testing.T) {
 		return field + " = " + shape + strings.Repeat(" }", strings.Count(field, "{"))
 	}
 
-	for kind, fields := range map[string][]string{"pdxmesh": meshFields, "entity": entityFields} {
+	kinds := map[string][]string{"pdxmesh": meshFields, "entity": entityFields, "skeletal_animation_set": setFields}
+
+	for kind, fields := range kinds {
 		for _, field := range fields {
 			for index, shape := range shapes {
 				name := fmt.Sprintf("thing_%d", index)
@@ -126,10 +136,11 @@ func TestHostileShapes(t *testing.T) {
 				assets, diagnostics := readWithin(t, input, 5*time.Second)
 				checkDiagnostics(t, diagnostics)
 
-				has := assets.Meshes.Has
-				if kind == "entity" {
-					has = assets.Entities.Has
-				}
+				has := map[string]func(string) bool{
+					"pdxmesh":                assets.Meshes.Has,
+					"entity":                 assets.Entities.Has,
+					"skeletal_animation_set": assets.AnimationSets.Has,
+				}[kind]
 
 				if !has(name) || !has("next") {
 					t.Errorf("%s %s: a definition was lost", kind, wrap(field, shape))
@@ -201,7 +212,8 @@ func TestRandomDefinitions(t *testing.T) {
 		"name", "file", "scale", "pdxmesh", "entity", "clone", "meshsettings", "animation", "blend_shape", "id", "type",
 		"lod_percentages", "lod", "index", "percent", "state", "event", "start_event", "attach", "group", "chance",
 		"locator", "position", "rotation", "attribute", "propagate_state", "if_current_state", "time_offset", "sound",
-		"texture", "game_data", "a", "b",
+		"texture", "game_data", "import", "reference_skeleton", "streaming", "rasterizerstate", "default",
+		"stop_on_state_change", "skeletal_animation_set", "a", "b",
 	}
 
 	var value func(depth int) string
@@ -231,7 +243,7 @@ func TestRandomDefinitions(t *testing.T) {
 		var input strings.Builder
 
 		for range random.Intn(6) {
-			kind := []string{"pdxmesh", "entity", "arrowType"}[random.Intn(3)]
+			kind := []string{"pdxmesh", "entity", "skeletal_animation_set", "arrowType"}[random.Intn(4)]
 			input.WriteString(kind + " = " + value(0) + "\n")
 		}
 
@@ -264,6 +276,8 @@ func FuzzRead(f *testing.F) {
 		`entity = { name = "e" group = { name = "g" attach = { chance = 1 pos = "e" } } locator = { name = l position = { 1 2 } } }`,
 		`pdxmesh = { name = "m" meshsettings = { index = 1.5 texture = { index = 1 file = "t.dds" srgb = yes } } }`,
 		`pdxmesh = { file = "nameless.mesh" } entity = "e" arrowType = { name = "a" }`,
+		`skeletal_animation_set = { name = "s" reference_skeleton = "m" animation = { id = "a" type = "a.anim" } } pdxmesh = { name = "m" import = { type = skeletal_animation_set name = "s" } }`,
+		`entity = { name = "e" state = { name = "s" chance = 1 chance = { if_current_state = { s = 1 } default = 0 } } }`,
 		`@x = 2 entity = { name = "e" scale = @x locator = { name = "l" position = { @[x * 2] 0 0 } } }`,
 	} {
 		f.Add(seed)

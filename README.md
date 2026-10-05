@@ -29,7 +29,7 @@ none of the general packages depend on any particular game.
 | [`folders`](folders) | Works out which files the game reads from the game and its mods, and in what order. | `script`, `report` | Follows the engine. |
 | [`database`](database) | Reads database folders such as `common/goods`: applies `INJECT:`, `REPLACE:` and the other modes, tracks where every part came from, and decodes definitions into your own types with a tolerant field reader. Also reads defines. | `script`, `folders`, `report` | Follows the engine. |
 | [`localization`](localization) | Parses and loads localization files, with `replace` folders. | `folders`, `report` | Follows the engine. |
-| [`asset`](asset) | Reads the 3D asset definitions in the `.asset` files anywhere below `gfx`: the `pdxmesh` and `entity` definitions, the references between them, and the files they name. | `script`, `folders`, `database`, `report` | Follows the engine. |
+| [`asset`](asset) | Reads the 3D asset definitions in the `.asset` files anywhere below `gfx`: the `pdxmesh`, `entity` and `skeletal_animation_set` definitions, the references between them, and the files they name. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`victoria3`](victoria3) | The economy of Victoria 3: goods, buildings, production methods, pops, companies, technologies and eras. Also its coats of arms and named colours. | all of the above | **Follows the game.** Written against 1.13. |
 
 `victoria3` is the one package expected to date. When the game adds or renames
@@ -138,9 +138,11 @@ for _, shape := range mesh.BlendShapes {
 }
 ```
 
-The asset files of Europa Universalis 5 are read by the same code, and what it
-writes that Victoria 3 does not, such as a state's chance that depends on the
-state before it, is read too.
+The asset files of Europa Universalis 5 and Crusader Kings 3 are read by the
+same code, and what they write that Victoria 3 does not is read too: a state's
+chance that depends on the state before it, and the animation sets Crusader
+Kings 3 shares the animations of its portraits through, which `AnimationsOf`
+lists with a mesh's own animations.
 
 ## Robustness
 
@@ -167,9 +169,10 @@ with input that does not fit:
 The test suites include hostile input written by hand, random input, inputs of
 several megabytes shaped to expose quadratic steps, and fuzz targets for every
 parser. The shipped economy files of Victoria 3 and all eleven of its languages
-load without a single warning. The asset files of Victoria 3 and Europa
-Universalis 5 load without a field left unread and without a warning beyond
-the typos and broken references in the files themselves.
+load without a single warning. The asset files of Victoria 3, Europa
+Universalis 5 and Crusader Kings 3 load without a field left unread and
+without a warning beyond the typos and broken references in the files
+themselves.
 
 The general packages have also been run over every database folder,
 localization and define of Europa Universalis 5 and Crusader Kings 3, with

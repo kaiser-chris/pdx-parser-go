@@ -109,6 +109,7 @@ func TestLoadInstalledGame(t *testing.T) {
 	checkInstalledFiles(t, set, assets)
 	spotCheckVictoria3(t, assets)
 	spotCheckEuropaUniversalis5(t, assets)
+	spotCheckCrusaderKings3(t, assets)
 }
 
 // checkInstalledFiles resolves every mesh, animation and blend shape file the
@@ -132,28 +133,43 @@ func checkInstalledFiles(t *testing.T, set *folders.Set, assets *Assets) {
 
 	checked := 0
 
-	check := func(mesh *Mesh, reference string) {
+	check := func(origin database.Origin, reference string) {
 		if reference == "" || slices.Contains(shippedMissingFiles, reference) {
 			return
 		}
 
 		checked++
 
-		if resolved := Resolve(mesh.Origin(), reference); !exists(resolved) {
-			t.Errorf("pdxmesh %s in %s names %s, which resolves to %s, where none of the folders has a file",
-				mesh.Key, mesh.Origin().File, reference, resolved)
+		if resolved := Resolve(origin, reference); !exists(resolved) {
+			t.Errorf("%s names %s, which resolves to %s, where none of the folders has a file", origin.File, reference, resolved)
 		}
 	}
 
 	for _, mesh := range assets.Meshes.All() {
-		check(mesh, mesh.File)
+		check(mesh.Origin(), mesh.File)
 
-		for _, animation := range slices.Concat(mesh.Animations, mesh.AdditiveAnimations) {
-			check(mesh, animation.File)
+		for _, animation := range mesh.AdditiveAnimations {
+			check(mesh.Origin(), animation.File)
 		}
 
 		for _, shape := range mesh.BlendShapes {
-			check(mesh, shape.File)
+			check(mesh.Origin(), shape.File)
+		}
+	}
+
+	// The animations of a mesh include those of the sets it imports, whose
+	// files are relative to the set rather than the mesh.
+	for _, mesh := range assets.Meshes.All() {
+		for _, animation := range assets.AnimationsOf(mesh) {
+			if animation.Origin == mesh.Origin() {
+				check(animation.Origin, animation.File)
+			}
+		}
+	}
+
+	for _, set := range assets.AnimationSets.All() {
+		for _, animation := range set.Animations {
+			check(set.Origin(), animation.File)
 		}
 	}
 
@@ -162,12 +178,19 @@ func checkInstalledFiles(t *testing.T, set *folders.Set, assets *Assets) {
 
 // spotCheckVictoria3 compares a few definitions of Victoria 3 against values
 // read by hand from its files. It does nothing for another game.
+//
+// The hussars tell the game apart: Crusader Kings 3 keeps a female body at the
+// very same path.
 func spotCheckVictoria3(t *testing.T, assets *Assets) {
 	t.Helper()
 
-	body, ok := assets.Meshes.Get("female_body_mesh")
-	if !ok || body.Origin().File != "gfx/models/portraits/female_body/female_body.asset" {
+	if !assets.Entities.Has("military_cavalry_european_hussar_rider_entity") {
 		return
+	}
+
+	body, ok := assets.Meshes.Get("female_body_mesh")
+	if !ok {
+		t.Fatal("female_body_mesh is missing")
 	}
 
 	if body.File != "female_body.mesh" || len(body.BlendShapes) != 12 || len(body.AdditiveAnimations) != 2 ||
@@ -249,5 +272,67 @@ func spotCheckEuropaUniversalis5(t *testing.T, assets *Assets) {
 
 	if !weighed {
 		t.Errorf("celtic_gfx_trireme states = %+v, want a move state weighed by the idle state", trireme.States)
+	}
+}
+
+// spotCheckCrusaderKings3 compares a few definitions of Crusader Kings 3
+// against values read by hand from its files. It does nothing for another
+// game.
+func spotCheckCrusaderKings3(t *testing.T, assets *Assets) {
+	t.Helper()
+
+	set, ok := assets.AnimationSets.Get("common_body")
+	if !ok {
+		return
+	}
+
+	if set.ReferenceSkeleton != "male_body_mesh" || set.Origin().File != "gfx/models/portraits/male_body/male_body.asset" || len(set.Animations) < 100 {
+		t.Errorf("common_body = %s, %s, %d animations", set.ReferenceSkeleton, set.Origin().File, len(set.Animations))
+	}
+
+	// The female body plays the animations made for the male one, and their
+	// files are next to the male body.
+	body, _ := assets.Meshes.Get("female_body_mesh")
+	if body == nil || !slices.Equal(body.Imports, []Import{{Type: "skeletal_animation_set", Name: "common_body"}}) || body.Streaming != "Never" {
+		t.Fatalf("female_body_mesh = %+v", body)
+	}
+
+	angry := false
+
+	for _, animation := range assets.AnimationsOf(body) {
+		if animation.ID == "body_emotion_angry" {
+			angry = Resolve(animation.Origin, animation.File) == "gfx/models/portraits/male_body/male_body_emotion_angry.anim"
+		}
+	}
+
+	if !angry {
+		t.Error("the female body cannot play body_emotion_angry from the male body's folder")
+	}
+
+	// A state with a plain chance and a chance by the state before it, each in
+	// a field of its own. Three states share its name, so any one may be it.
+	control, ok := assets.Entities.Get("combat_control_entity")
+	if !ok {
+		t.Fatal("combat_control_entity is missing")
+	}
+
+	weighed := false
+
+	for _, state := range control.States {
+		if state.Name == "defender_winning" && state.Chance == database.Some(1.0) && state.ChanceDefault == database.Some(0.0) &&
+			slices.Contains(state.ChanceFromState, database.Amount{Key: "defender_winning", Amount: 100}) {
+			weighed = true
+		}
+	}
+
+	if !weighed {
+		t.Errorf("combat_control_entity defender_winning is not weighed both ways: %+v", control.States)
+	}
+
+	// Written without a space before the next field.
+	clothes, _ := assets.Meshes.Get("m_clothes_sec_tgp_chinese_war_nob_02_artifact_mesh")
+	if clothes == nil || len(clothes.Settings) == 0 || clothes.Settings[0].RasterizerState != "rasterizer_no_culling" ||
+		len(clothes.Settings[0].ShaderDefines) == 0 {
+		t.Errorf("m_clothes_sec_tgp_chinese_war_nob_02_artifact_mesh = %+v", clothes)
 	}
 }

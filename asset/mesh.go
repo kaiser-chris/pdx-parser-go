@@ -57,6 +57,15 @@ type Mesh struct {
 	// them by.
 	BlendShapes []BlendShape
 
+	// Imports bring in definitions of other kinds, such as the animations of
+	// an animation set. AnimationsOf lists a mesh's animations with them.
+	Imports []Import
+
+	// Streaming says when the engine loads the mesh, such as Never for a
+	// mesh it keeps loaded all the time, when the file says. Crusader Kings 3
+	// writes it.
+	Streaming string
+
 	// LODs are the levels of detail, by the share of the screen below which
 	// each takes over.
 	LODs []LOD
@@ -136,6 +145,11 @@ type MeshSettings struct {
 	// Subpass is the pass of the renderer the part is drawn in, such as
 	// Decals.
 	Subpass string
+
+	// RasterizerState is the rasterizer state the part is drawn with, such as
+	// rasterizer_no_culling for a part seen from both sides, when the file
+	// says. Crusader Kings 3 writes it.
+	RasterizerState string
 }
 
 // Texture is a texture for a further slot of a shader.
@@ -178,6 +192,8 @@ const (
 	keyShadowOnly        = "shadow_only"
 	keyShaderDefines     = "additional_shader_defines"
 	keySubpass           = "subpass"
+	keyRasterizerState   = "rasterizerstate"
+	keyStreaming         = "streaming"
 	infinitePercent      = "inf"
 )
 
@@ -189,6 +205,8 @@ func decodeMesh(r *database.Reader) *Mesh {
 		File:         r.Text(keyFile),
 		Scale:        r.NumberOr(keyScale, 1),
 		CullDistance: r.Number(keyCullDistance),
+		Streaming:    r.Text(keyStreaming),
+		Imports:      imports(r),
 	}
 
 	if mesh.File == "" {
@@ -236,6 +254,8 @@ func decodeMeshSettings(r *database.Reader) MeshSettings {
 		ShadowOnly:    r.FlagOr(keyShadowOnly, false),
 		ShaderDefines: r.Names(keyShaderDefines),
 		Subpass:       r.Text(keySubpass),
+
+		RasterizerState: r.Text(keyRasterizerState),
 	}
 
 	// An empty shadow shader means something, no shadow, so it is told apart

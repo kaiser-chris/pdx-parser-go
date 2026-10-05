@@ -459,7 +459,7 @@ pdxmesh = { name = "fine_mesh" file = "fine.mesh" }
 	expect(t, diagnostics, report.SeverityWarning, `the name of a pdxmesh should be a name or a string, found ""; ignored`)
 	expect(t, diagnostics, report.SeverityWarning, `entity should be a block, found "not_a_block"; ignored`)
 	expect(t, diagnostics, report.SeverityWarning, "entity second is named 2 times; the last name counts")
-	expect(t, diagnostics, report.SeverityInfo, "arrowType is neither a pdxmesh nor an entity; not read")
+	expect(t, diagnostics, report.SeverityInfo, "arrowType is no kind of definition this package reads; not read")
 
 	if keys := assets.Meshes.Keys(); !slices.Equal(keys, []string{"fine_mesh"}) {
 		t.Errorf("meshes = %v", keys)
@@ -613,5 +613,143 @@ func TestResolve(t *testing.T) {
 	layered := database.Origin{File: "in_game/gfx/models/ship/ship.asset"}
 	if got := Resolve(layered, "ship.mesh"); got != "in_game/gfx/models/ship/ship.mesh" {
 		t.Errorf("Resolve in a layer = %q", got)
+	}
+}
+
+// Crusader Kings 3 shares animations between meshes through animation sets,
+// which a mesh imports. The files of a set's animations are relative to the
+// set, wherever the mesh importing it is.
+func TestAnimationSets(t *testing.T) {
+	root := t.TempDir()
+
+	write := func(name, content string) {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("game/gfx/models/portraits/male_body/male_body.asset", `
+skeletal_animation_set = {
+	name = "common_body"
+	reference_skeleton = "male_body_mesh"
+	animation = { id = "body_wave" type = "male_body_wave.anim" }
+	animation = { id = "body_bow" type = "male_body_bow.anim" }
+}
+
+pdxmesh = {
+	name = "male_body_mesh"
+	file = "male_body.mesh"
+	import = { type = skeletal_animation_set name = "common_body" }
+}
+`)
+	write("game/gfx/models/portraits/female_body/female_body.asset", `
+pdxmesh = {
+	name = "female_body_mesh"
+	file = "female_body.mesh"
+	streaming = Never
+	animation = { id = "body_curtsy" type = "female_body_curtsy.anim" }
+	import = { type = skeletal_animation_set name = "common_body" }
+	meshsettings = { name = "female_bodyShape" rasterizerstate = "rasterizer_no_culling" }
+}
+
+entity = {
+	name = "female_body_entity"
+	pdxmesh = "female_body_mesh"
+	state = { name = "wave" animation = "body_wave" }
+	state = { name = "curtsy" animation = "body_curtsy" }
+}
+`)
+
+	assets := Load(folders.Open([]folders.Source{{Name: "game", Path: filepath.Join(root, "game")}}))
+
+	expectClean(t, assets.Diagnostics)
+
+	set, ok := assets.AnimationSets.Get("common_body")
+	if !ok || set.ReferenceSkeleton != "male_body_mesh" || len(set.Animations) != 2 {
+		t.Fatalf("common_body = %+v", set)
+	}
+
+	body, _ := assets.Meshes.Get("female_body_mesh")
+	if !slices.Equal(body.Imports, []Import{{Type: "skeletal_animation_set", Name: "common_body"}}) ||
+		body.Streaming != "Never" || body.Settings[0].RasterizerState != "rasterizer_no_culling" {
+		t.Errorf("female_body_mesh = %+v", body)
+	}
+
+	var played []string
+
+	for _, animation := range assets.AnimationsOf(body) {
+		played = append(played, animation.ID+" "+Resolve(animation.Origin, animation.File))
+	}
+
+	want := []string{
+		"body_curtsy gfx/models/portraits/female_body/female_body_curtsy.anim",
+		"body_wave gfx/models/portraits/male_body/male_body_wave.anim",
+		"body_bow gfx/models/portraits/male_body/male_body_bow.anim",
+	}
+	if !slices.Equal(played, want) {
+		t.Errorf("animations of the female body = %q, want its own, then the set's next to the set", played)
+	}
+}
+
+func TestAnimationSetReferences(t *testing.T) {
+	assets, diagnostics := read(t, `
+skeletal_animation_set = { name = "empty_set" reference_skeleton = "missing_skeleton_mesh" }
+
+pdxmesh = {
+	name = "odd_mesh"
+	file = "odd.mesh"
+	import = { type = skeletal_animation_set name = "missing_set" }
+	import = { type = morph_set name = "faces" }
+	import = { type = skeletal_animation_set }
+}
+
+entity = { name = "odd_entity" pdxmesh = "odd_mesh" state = { name = "s" animation = "from_missing_set" } }
+`)
+
+	expect(t, diagnostics, report.SeverityWarning, "test.asset:2:68: skeletal_animation_set empty_set: pdxmesh missing_skeleton_mesh does not exist")
+	expect(t, diagnostics, report.SeverityInfo, "skeletal_animation_set empty_set: has no animations")
+	expect(t, diagnostics, report.SeverityWarning, "pdxmesh odd_mesh: skeletal_animation_set missing_set does not exist")
+	expect(t, diagnostics, report.SeverityInfo, "pdxmesh odd_mesh: imports a morph_set, which is no kind of definition this package reads")
+	expect(t, diagnostics, report.SeverityWarning, "pdxmesh odd_mesh, import: has no name; nothing is imported")
+	expect(t, diagnostics, report.SeverityWarning, "animation from_missing_set is not one of the animations of pdxmesh odd_mesh")
+
+	mesh, _ := assets.Meshes.Get("odd_mesh")
+	if animations := assets.AnimationsOf(mesh); len(animations) != 0 {
+		t.Errorf("animations of a mesh whose imports do not resolve = %+v", animations)
+	}
+}
+
+// Crusader Kings 3 gives a state a plain chance and a chance by the state
+// before it, each in a field of its own. Both are read.
+func TestStateWithBothChances(t *testing.T) {
+	assets, diagnostics := read(t, `
+entity = {
+	name = "control_entity"
+	state = {
+		name = "winning"
+		chance = 1.0
+		chance = { if_current_state = { "even" = 0 "winning" = 100 } default = 5 }
+		event = { sound = { soundeffect = "event:/ambience" stop_on_state_change = no } }
+	}
+}
+`)
+
+	expectClean(t, diagnostics)
+
+	entity, _ := assets.Entities.Get("control_entity")
+	state := entity.States[0]
+
+	if state.Chance != database.Some(1.0) || state.ChanceDefault != database.Some(5.0) ||
+		!slices.Equal(state.ChanceFromState, []database.Amount{{Key: "even", Amount: 0}, {Key: "winning", Amount: 100}}) {
+		t.Errorf("state = %+v, want both chances", state)
+	}
+
+	if event := state.Events[0]; event.Sound != "event:/ambience" || event.SoundStopsOnStateChange != database.Some(false) {
+		t.Errorf("event = %+v", event)
 	}
 }

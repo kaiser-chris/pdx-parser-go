@@ -16,10 +16,29 @@ import (
 // definition names exist is a question about the disk, which reading the
 // definitions never asks.
 func link(assets *Assets, collector *report.Collector) {
+	for _, mesh := range assets.Meshes.All() {
+		check := newReferenceCheck(&mesh.Definition, kindMesh, collector)
+
+		for _, imported := range mesh.Imports {
+			if imported.Type != kindAnimationSet {
+				check.note(keyImport, imported.Type, "imports a %s, which is no kind of definition this package reads", imported.Type)
+
+				continue
+			}
+
+			check.one(keyImport, imported.Name, assets.AnimationSets.Has, kindAnimationSet)
+		}
+	}
+
+	for _, set := range assets.AnimationSets.All() {
+		newReferenceCheck(&set.Definition, kindAnimationSet, collector).
+			one(keyReferenceSkeleton, set.ReferenceSkeleton, assets.Meshes.Has, kindMesh)
+	}
+
 	meshes, cycles := followClones(assets)
 
 	for _, entity := range assets.Entities.All() {
-		check := newReferenceCheck(&entity.Definition, collector)
+		check := newReferenceCheck(&entity.Definition, kindEntity, collector)
 
 		check.one(keyPDXMesh, entity.Mesh, assets.Meshes.Has, kindMesh)
 		check.one(keyClone, entity.Clone, assets.Entities.Has, kindEntity)
@@ -45,7 +64,7 @@ func link(assets *Assets, collector *report.Collector) {
 		}
 
 		if mesh := meshes[entity.Key]; mesh != nil {
-			checkMeshIDs(check, entity, mesh)
+			checkMeshIDs(check, entity, mesh, assets.AnimationsOf(mesh))
 		}
 	}
 
@@ -53,18 +72,18 @@ func link(assets *Assets, collector *report.Collector) {
 }
 
 // checkMeshIDs checks that what an entity's states play and its attributes
-// morph are animations and blend shapes of the mesh it draws.
-func checkMeshIDs(check *referenceCheck, entity *Entity, mesh *Mesh) {
-	ids := func(of []Animation) map[string]bool {
-		found := map[string]bool{}
-		for _, animation := range of {
-			found[animation.ID] = true
-		}
-
-		return found
+// morph are animations and blend shapes of the mesh it draws. playable are
+// the animations the mesh can play, its own and those it imports.
+func checkMeshIDs(check *referenceCheck, entity *Entity, mesh *Mesh, playable []MeshAnimation) {
+	animations := map[string]bool{}
+	for _, animation := range playable {
+		animations[animation.ID] = true
 	}
 
-	animations, additive := ids(mesh.Animations), ids(mesh.AdditiveAnimations)
+	additive := map[string]bool{}
+	for _, animation := range mesh.AdditiveAnimations {
+		additive[animation.ID] = true
+	}
 
 	shapes := map[string]bool{}
 	for _, shape := range mesh.BlendShapes {
@@ -164,7 +183,7 @@ func reportCloneCycles(cycles [][]*Entity, collector *report.Collector) {
 
 		names = append(names, cycle[0].Key)
 
-		check := newReferenceCheck(&cycle[0].Definition, collector)
+		check := newReferenceCheck(&cycle[0].Definition, kindEntity, collector)
 		check.problem(keyClone, cycle[0].Clone, "clones itself through %s", strings.Join(names, " -> "))
 	}
 }
@@ -225,12 +244,12 @@ type place struct {
 	line, column int
 }
 
-// newReferenceCheck returns a check for the references of an entity, the one
-// kind of definition that refers to others.
-func newReferenceCheck(definition *database.Definition, collector *report.Collector) *referenceCheck {
+// newReferenceCheck returns a check for the references of a definition of a
+// kind.
+func newReferenceCheck(definition *database.Definition, kind string, collector *report.Collector) *referenceCheck {
 	return &referenceCheck{
 		definition: definition,
-		subject:    kindEntity + " " + definition.Key,
+		subject:    kind + " " + definition.Key,
 		collector:  collector,
 		places:     map[string]map[string]place{},
 	}
@@ -249,6 +268,16 @@ func (c *referenceCheck) one(field, name string, exists func(string) bool, kind 
 // with the given key, which may hold it deep inside a block. It is reported at
 // the definition when no such value is found.
 func (c *referenceCheck) problem(field, name, format string, args ...any) {
+	c.report(report.SeverityWarning, field, name, format, args...)
+}
+
+// note reports something worth knowing that is not a problem, at the value
+// that names it, as problem does.
+func (c *referenceCheck) note(field, name, format string, args ...any) {
+	c.report(report.SeverityInfo, field, name, format, args...)
+}
+
+func (c *referenceCheck) report(severity report.Severity, field, name, format string, args ...any) {
 	origin := c.definition.Origin()
 	line, column := origin.Line, 0
 
@@ -257,7 +286,7 @@ func (c *referenceCheck) problem(field, name, format string, args ...any) {
 		line, column = found.line, found.column
 	}
 
-	c.collector.Addf(report.SeverityWarning, origin.Source, origin.Path, line, column, c.subject, format, args...)
+	c.collector.Addf(severity, origin.Source, origin.Path, line, column, c.subject, format, args...)
 }
 
 // placesIn returns where each string inside the fields with the given key is

@@ -2,12 +2,13 @@
 // files below gfx, which tell the engine which meshes there are and how
 // entities are put together from them.
 //
-// An asset file holds two kinds of definition, each a block that carries its
-// name inside:
+// An asset file holds definitions of three kinds, each a block that carries
+// its name inside:
 //
 //	pdxmesh = {
 //		name = "statue_01_mesh"
 //		file = "statue_01.mesh"
+//		import = { type = skeletal_animation_set name = "statue_animations" }
 //		meshsettings = { name = "statue_01Shape" texture_diffuse = "statue_01_diffuse.dds" }
 //	}
 //
@@ -16,12 +17,24 @@
 //		pdxmesh = "statue_01_mesh"
 //	}
 //
+//	skeletal_animation_set = {
+//		name = "statue_animations"
+//		reference_skeleton = "statue_01_mesh"
+//		animation = { id = "idle" type = "statue_idle.anim" }
+//	}
+//
 // A pdxmesh names a .mesh file and says how its parts are drawn; an entity
-// draws a mesh, animates it through states and attaches other entities to it.
-// Both are engine formats, written the same way by every game on the Jomini
+// draws a mesh, animates it through states and attaches other entities to it;
+// a skeletal_animation_set holds animations that several meshes import.
+// They are engine formats, written the same way by every game on the Jomini
 // engine, so this package knows nothing about any particular game. What a
 // game keeps on an entity for itself, its game_data, is handed out as script
 // for the game's own package to read.
+//
+// The package is checked against the shipped files of Victoria 3, Europa
+// Universalis 5 and Crusader Kings 3, which it reads without a field left
+// unread. Each writes something the others do not, such as the animation sets
+// of Crusader Kings 3, and all of it is read.
 //
 // # Where the files are
 //
@@ -31,10 +44,9 @@
 //
 // # Names
 //
-// Meshes and entities are looked up by name, and a name is unique across all
-// files. The shipped files of Victoria 3 and Europa Universalis 5 never define
-// a name twice, so what the engine does with a name defined again is not
-// known from them. This
+// Definitions are looked up by name, and a name is unique across all files.
+// The shipped files of the three games never define a name twice, so what
+// the engine does with a name defined again is not known from them. This
 // package reads it the way the database folders work, by load order: the
 // later definition overrides the earlier one completely, which is reported,
 // and the earlier one is kept in the definition's Overridden.
@@ -45,9 +57,11 @@
 // to the folder of the asset file, often as a bare file name, and sometimes
 // with ../ to reach a neighbouring folder. Resolve turns such a reference into
 // a path below the game's root, and every .mesh and .anim file the shipped
-// definitions of both games name is where it says. Textures are not always:
-// the engine finds many of them elsewhere, in a way not settled yet. Shader
-// files are written from the root, and need no resolving.
+// definitions of the three games name is where it says. The animations a mesh
+// imports are relative to the set that holds them, which AnimationsOf keeps
+// track of. Textures are not always where Resolve says: the engine finds many
+// of them elsewhere, in a way not settled yet. Shader files are written from
+// the root, and need no resolving.
 //
 // # Robustness
 //
@@ -55,10 +69,11 @@
 // name, or with a name that is not a string, cannot be referred to and is
 // skipped, with a warning. A field of the wrong kind is read as its default,
 // with a warning, and a field this package does not know is reported and
-// stays readable through Definition.Raw. References between definitions,
-// from an entity to its mesh, the entity it clones and the entities it
-// attaches, are checked, and one that does not resolve is reported and kept
-// as written.
+// stays readable through Definition.Raw. References between definitions are
+// checked: from an entity to its mesh, the entity it clones, the entities it
+// attaches and the animations and blend shapes it uses, from a mesh to the
+// animation sets it imports, and from a set to its reference skeleton. One
+// that does not resolve is reported and kept as written.
 package asset
 
 import (
@@ -71,13 +86,15 @@ import (
 // Folder is where the asset files are: anywhere below gfx.
 var Folder = folders.Folder{Path: "gfx", Recursive: true, Extension: ".asset"}
 
-// The names the two kinds of definition go by in diagnostics.
+// The names the kinds of definition go by in diagnostics, which are also the
+// keys they are written under.
 const (
-	kindMesh   = "pdxmesh"
-	kindEntity = "entity"
+	kindMesh         = "pdxmesh"
+	kindEntity       = "entity"
+	kindAnimationSet = "skeletal_animation_set"
 )
 
-// Assets is the meshes and entities of a set of folders.
+// Assets is the meshes, entities and animation sets of a set of folders.
 type Assets struct {
 	// Sources are the names of the folders that could be read, in load order.
 	Sources []string
@@ -90,9 +107,26 @@ type Assets struct {
 	// reads them.
 	Entities database.Table[Entity]
 
+	// AnimationSets are the skeletal_animation_set definitions, by name, in
+	// the order the game reads them. Victoria 3 and Europa Universalis 5 have
+	// none; Crusader Kings 3 shares the animations of its portraits through
+	// them.
+	AnimationSets database.Table[AnimationSet]
+
 	// Diagnostics are the problems found in the files. Problems with the
 	// folders themselves are in the set's own Diagnostics.
 	Diagnostics report.Diagnostics
+}
+
+// stores collects the definitions of each kind as files are read.
+type stores map[string]*database.Store
+
+func newStores() stores {
+	return stores{
+		kindMesh:         database.NewStore(kindMesh),
+		kindEntity:       database.NewStore(kindEntity),
+		kindAnimationSet: database.NewStore(kindAnimationSet),
+	}
 }
 
 // Load reads the asset files of a set of folders.
@@ -105,22 +139,20 @@ func Load(set *folders.Set) *Assets {
 	files, diagnostics := set.Files(Folder)
 	collector.AddAll(diagnostics)
 
-	meshes := database.NewStore(kindMesh)
-	entities := database.NewStore(kindEntity)
+	collected := newStores()
 
 	for _, parsed := range database.ParseFiles(files, collector) {
-		add(parsed.Document, parsed.File, meshes, entities, collector)
+		collected.add(parsed.Document, parsed.File, collector)
 	}
 
-	assets := decode(meshes, entities, collector)
+	assets := collected.decode(collector)
 	assets.Sources = set.Names()
 	assets.Diagnostics = collector.Diagnostics
 
 	return assets
 }
 
-// Read reads the meshes and entities of one file that has already been
-// parsed.
+// Read reads the definitions of one file that has already been parsed.
 //
 // It is what Load does to every asset file, for a tool that has a single file
 // in hand rather than a whole game. References are checked within the file
@@ -128,32 +160,24 @@ func Load(set *folders.Set) *Assets {
 // places the diagnostics and is what Resolve resolves against, so for a file
 // that is not on disk its Relative should still say where it would be.
 func Read(document *script.Document, file folders.File, collector *report.Collector) *Assets {
-	meshes := database.NewStore(kindMesh)
-	entities := database.NewStore(kindEntity)
+	collected := newStores()
+	collected.add(document, file, collector)
 
-	add(document, file, meshes, entities, collector)
-
-	assets := decode(meshes, entities, collector)
+	assets := collected.decode(collector)
 	assets.Sources = []string{file.Source}
 
 	return assets
 }
 
-// add collects the definitions of one parsed file into the two stores.
-func add(document *script.Document, file folders.File, meshes, entities *database.Store, collector *report.Collector) {
+// add collects the definitions of one parsed file into the stores.
+func (s stores) add(document *script.Document, file folders.File, collector *report.Collector) {
 	for _, field := range document.Fields {
-		var store *database.Store
-
-		switch field.Key {
-		case kindMesh:
-			store = meshes
-		case kindEntity:
-			store = entities
-		default:
+		store, ok := s[field.Key]
+		if !ok {
 			// Asset files hold other things too, such as the arrow types of
-			// Victoria 3's map, which are no meshes or entities.
+			// the maps, which are no meshes or entities.
 			collector.Addf(report.SeverityInfo, file.Source, file.Path, field.Line, field.Column, "",
-				"%s is neither a pdxmesh nor an entity; not read", field.Key)
+				"%s is no kind of definition this package reads; not read", field.Key)
 
 			continue
 		}
@@ -202,15 +226,18 @@ func definitionName(field script.Field, kind string, file folders.File, collecto
 	return name, true
 }
 
-// decode turns the collected definitions into meshes and entities and checks
-// the references between them.
-func decode(meshes, entities *database.Store, collector *report.Collector) *Assets {
+// decode turns the collected definitions into their types and checks the
+// references between them.
+func (s stores) decode(collector *report.Collector) *Assets {
 	assets := &Assets{
-		Meshes: database.Decode(meshes, collector, func(r *database.Reader, _ *database.Definition) *Mesh {
+		Meshes: database.Decode(s[kindMesh], collector, func(r *database.Reader, _ *database.Definition) *Mesh {
 			return decodeMesh(r)
 		}),
-		Entities: database.Decode(entities, collector, func(r *database.Reader, _ *database.Definition) *Entity {
+		Entities: database.Decode(s[kindEntity], collector, func(r *database.Reader, _ *database.Definition) *Entity {
 			return decodeEntity(r)
+		}),
+		AnimationSets: database.Decode(s[kindAnimationSet], collector, func(r *database.Reader, _ *database.Definition) *AnimationSet {
+			return decodeAnimationSet(r)
 		}),
 	}
 

@@ -118,9 +118,12 @@ type State struct {
 	Chance database.Opt[float64]
 
 	// ChanceFromState weighs the state by the state the entity is in when it
-	// picks, as in chance = { if_current_state = { "idle" = 100 } }, which
-	// Europa Universalis 5 writes in place of a plain chance.
+	// picks, as in chance = { if_current_state = { "idle" = 100 } default = 0 },
+	// which Europa Universalis 5 and Crusader Kings 3 write, and
+	// ChanceDefault is the weight in any state not listed, when the file
+	// says. Crusader Kings 3 writes this as well as a plain chance.
 	ChanceFromState []database.Amount
+	ChanceDefault   database.Opt[float64]
 
 	// TimeOffset starts the animation a random time into it, between the two
 	// values; a single value is written as both.
@@ -159,6 +162,10 @@ type Event struct {
 	Particle string
 	Sound    string
 	Light    string
+
+	// SoundStopsOnStateChange says whether the sound stops when the state
+	// does, when the file says. Crusader Kings 3 writes it.
+	SoundStopsOnStateChange database.Opt[bool]
 
 	// SoundParameters set parameters of the sound.
 	SoundParameters []database.Amount
@@ -254,6 +261,7 @@ const (
 	keyStateTime          = "state_time"
 	keyChance             = "chance"
 	keyIfCurrentState     = "if_current_state"
+	keyStopOnStateChange  = "stop_on_state_change"
 	keyTimeOffset         = "time_offset"
 	keyPropagateState     = "propagate_state"
 	keyStartEvent         = "start_event"
@@ -365,7 +373,7 @@ func decodeState(r *database.Reader) State {
 		r.Missing(keyName, "the state cannot be entered")
 	}
 
-	state.Chance, state.ChanceFromState = chance(r)
+	chance(r, &state)
 
 	for _, index := range r.Indices(keyPropagateState) {
 		state.Propagation = append(state.Propagation, propagation(r, index)...)
@@ -405,30 +413,31 @@ func timeOffset(r *database.Reader) database.Opt[[2]float64] {
 	return database.Opt[[2]float64]{}
 }
 
-// chance reads the chance of a state: a number, or a block that weighs the
-// state by the state the entity is in.
-func chance(r *database.Reader) (database.Opt[float64], []database.Amount) {
-	index, ok := r.Last(keyChance)
-	if !ok {
-		return database.Opt[float64]{}, nil
+// chance reads the chance of a state. It is written as a number, as a block
+// that weighs the state by the state the entity is in, or both, each in a
+// field of its own, so every occurrence is read: the last number is the plain
+// chance, and the last block the weights.
+func chance(r *database.Reader, state *State) {
+	for _, index := range r.Indices(keyChance) {
+		value := r.Fields()[index].Value
+
+		if number, ok := value.Num(); ok {
+			state.Chance = database.Some(number)
+
+			continue
+		}
+
+		if !value.IsBlock() {
+			r.Warn(index, value, "%s should be a number or a block, found %s; ignored", keyChance, value.Describe())
+
+			continue
+		}
+
+		child := r.Child(index, value, keyChance)
+		state.ChanceFromState = child.NumberMap(keyIfCurrentState)
+		state.ChanceDefault = child.Number(keyDefault)
+		child.Finish()
 	}
-
-	value := r.Fields()[index].Value
-
-	if number, ok := value.Num(); ok {
-		return database.Some(number), nil
-	}
-
-	if !value.IsBlock() {
-		r.Warn(index, value, "%s should be a number or a block, found %s; ignored", keyChance, value.Describe())
-
-		return database.Opt[float64]{}, nil
-	}
-
-	child := r.Child(index, value, keyChance)
-	defer child.Finish()
-
-	return database.Opt[float64]{}, child.NumberMap(keyIfCurrentState)
 }
 
 // propagation reads a propagate_state field: a block whose keys name the
@@ -498,6 +507,7 @@ func decodeEvent(r *database.Reader) Event {
 	for _, block := range r.Blocks(keySound) {
 		child := r.Child(block.Index, block.Value, keySound)
 		event.Sound = child.Text(keySoundEffect)
+		event.SoundStopsOnStateChange = child.Flag(keyStopOnStateChange)
 		child.Finish()
 	}
 
