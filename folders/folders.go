@@ -32,6 +32,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -285,6 +286,47 @@ func (s *Set) Files(folder Folder) ([]File, report.Diagnostics) {
 	})
 
 	return files, collector.Diagnostics
+}
+
+// Find looks up one file the game reads, by its path below the roots, such as
+// gfx/models/portraits/male_body/male_body.mesh. The file of the latest folder
+// in load order that has it is the one the game reads, the way a mod replaces
+// a file of the game.
+//
+// A folder that lists the file's directory as a replace path hides the folders
+// before it, so a file only they have is not found. In a game with layers the
+// path names the layer it is in, as File.Relative does: in_game/gfx/....
+//
+// A path that climbs above the roots with ../ is read as if it stopped at
+// them, so Find never looks outside the folders it was given.
+func (s *Set) Find(relative string) (File, bool) {
+	relative = strings.Trim(path.Clean("/"+strings.ReplaceAll(relative, "\\", "/")), "/")
+	if relative == "" {
+		return File{}, false
+	}
+
+	directory := Normalize(path.Dir(relative))
+
+	for order := len(s.roots) - 1; order >= 0; order-- {
+		root := s.roots[order]
+		onDisk := filepath.Join(root.dir, filepath.FromSlash(relative))
+
+		if info, err := os.Stat(onDisk); err == nil && !info.IsDir() {
+			file := File{Relative: relative, Path: onDisk, Source: root.Name, SourceOrder: order}
+
+			if layer, _, found := strings.Cut(relative, "/"); found && slices.Contains(root.layers, layer) {
+				file.Layer = layer
+			}
+
+			return file, true
+		}
+
+		if root.replacePaths[directory] {
+			return File{}, false
+		}
+	}
+
+	return File{}, false
 }
 
 // withinLayer is the file's path below its layer, in lower case.

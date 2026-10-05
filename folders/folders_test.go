@@ -353,3 +353,76 @@ func TestFlatDLC(t *testing.T) {
 		t.Errorf("goods = %v, want %v", got, want)
 	}
 }
+
+func TestFind(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"game/gfx/models/body/body.mesh":        "game",
+		"game/gfx/models/body/body_diffuse.dds": "game",
+		"game/gfx/models/hat/hat.mesh":          "game",
+		"game/gfx/models/coat/coat.mesh":        "game",
+		"mod/.metadata/metadata.json":           `{ "name": "Mod", "game_custom_data": { "replace_paths": [ "gfx/models/hat" ] } }`,
+		"mod/gfx/models/body/body.mesh":         "mod",
+		"mod/gfx/models/coat/lining.dds":        "mod",
+		"layered/in_game/gfx/models/ship.mesh":  "layered",
+	})
+
+	set := Open([]Source{
+		{Name: "game", Path: filepath.Join(root, "game")},
+		{Path: filepath.Join(root, "mod")},
+	})
+
+	cases := map[string]struct {
+		source string
+		found  bool
+	}{
+		// The mod replaces the file of the game.
+		"gfx/models/body/body.mesh": {"Mod", true},
+		// A file only the game has is the game's.
+		"gfx/models/body/body_diffuse.dds": {"game", true},
+		// Whatever the slashes, and wherever the path wanders on the way.
+		`gfx\models\body\..\body\body.mesh`: {"Mod", true},
+		// The mod replaces the whole directory, so the game's file is gone.
+		"gfx/models/hat/hat.mesh": {"", false},
+		// Only the directory itself, not its neighbours.
+		"gfx/models/coat/coat.mesh":  {"game", true},
+		"gfx/models/coat/lining.dds": {"Mod", true},
+		// Nobody has it.
+		"gfx/models/nothing.mesh": {"", false},
+		// A directory is no file.
+		"gfx/models/body": {"", false},
+		"":                {"", false},
+		// A path cannot climb out of the folders.
+		"../../game/gfx/models/body/body.mesh": {"", false},
+		"../gfx/models/body/body.mesh":         {"Mod", true},
+	}
+
+	for relative, want := range cases {
+		file, found := set.Find(relative)
+		if found != want.found || file.Source != want.source {
+			t.Errorf("Find(%q) = %+v, %v, want from %q, %v", relative, file, found, want.source, want.found)
+
+			continue
+		}
+
+		// Each file holds the name of the folder it is in.
+		if found {
+			data, err := os.ReadFile(file.Path)
+			if err != nil || string(data) != map[string]string{"game": "game", "Mod": "mod"}[file.Source] {
+				t.Errorf("Find(%q) points at %s, holding %q", relative, file.Path, data)
+			}
+		}
+	}
+
+	if file, _ := set.Find("gfx/models/body/body.mesh"); file.SourceOrder != 1 || file.Relative != "gfx/models/body/body.mesh" {
+		t.Errorf("found file = %+v", file)
+	}
+
+	// In a game with layers the path names its layer.
+	layered := Open([]Source{{Name: "layered", Path: filepath.Join(root, "layered")}})
+
+	file, found := layered.Find("in_game/gfx/models/ship.mesh")
+	if !found || file.Layer != "in_game" {
+		t.Errorf("Find in a layer = %+v, %v", file, found)
+	}
+}

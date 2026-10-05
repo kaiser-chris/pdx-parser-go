@@ -209,6 +209,10 @@ read them and reported.
 - DLCs in the game's `dlc` folder that hold game files are read right after
   the game, each as a folder of its own.
 
+`Set.Find` looks up a single file the same way, such as a mesh an `.asset`
+file names: the latest folder that has it wins, and a replace path hides the
+folders before it.
+
 `database` then applies the modification modes as the definitions are read:
 
 | Key | Effect |
