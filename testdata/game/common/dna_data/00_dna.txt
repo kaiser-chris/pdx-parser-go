@@ -1,0 +1,11 @@
+dna_example_statesman = {
+	portrait_info = {
+		genes = {
+			hair_color = { 14 244 25 255 }
+			gene_nose_size = { "nose_size" 191 "nose_size" 64 }
+			gene_chin_width = { "chin_width" 127 "chin_width" 127 }
+			hairstyles = { "short_hairstyles" 255 "short_hairstyles" 0 }
+		}
+	}
+	enabled = yes
+}

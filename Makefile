@@ -19,6 +19,8 @@ fuzz:
 	go test ./localization -run '^$$' -fuzz FuzzParse -fuzztime $(FUZZTIME)
 	go test ./victoria3 -run '^$$' -fuzz FuzzDecode -fuzztime $(FUZZTIME)
 	go test ./asset -run '^$$' -fuzz FuzzRead -fuzztime $(FUZZTIME)
+	go test ./genes -run '^$$' -fuzz FuzzRead -fuzztime $(FUZZTIME)
+	go test ./portrait -run '^$$' -fuzz FuzzRead -fuzztime $(FUZZTIME)
 
 ## cover: show test coverage by package
 cover:
