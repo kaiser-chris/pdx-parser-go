@@ -2,6 +2,7 @@ package genes
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -770,6 +771,10 @@ idle = {
 		t.Errorf("male variants = %+v", male.Variants)
 	}
 
+	if modifiers := male.Variants[0].Modifiers; !slices.Equal(modifiers, []ModifierChoice{{Group: "animations_props", Modifier: "smoking_attachment"}}) {
+		t.Errorf("the smoker's modifiers are %+v, want its props", modifiers)
+	}
+
 	if girl := idle.For(Girl); girl.SameAs != "boy" || girl.Default.Torso != "idle1" {
 		t.Errorf("girl = %+v, want the boy's", girl)
 	}
@@ -800,5 +805,97 @@ func TestReadAnimationsReportsProblems(t *testing.T) {
 
 	if len(collector.Diagnostics) != 3 {
 		t.Errorf("diagnostics = %v, want the missing default, the odd variant and the bare one's missing animation", collector.Diagnostics)
+	}
+}
+
+// A group of portrait modifiers has its settings and its modifiers, each
+// with what it does to genes: a template at a strength, or at one picked
+// from a range, which a portrait drawn without chance takes the middle of.
+func TestReadModifiers(t *testing.T) {
+	collector := &report.Collector{}
+	table := ReadModifiers(script.Parse(`
+animations_props = {
+	usage = none
+	saber_attachment = {
+		dna_modifiers = {
+			accessory = { mode = add gene = props template = gene_saber_01 value = 1.0 accessory = prop_saber }
+		}
+	}
+	smoking_attachment = {
+		dna_modifiers = {
+			accessory = { mode = add gene = props template = cigar_and_pipes range = { 0.2 0.6 } }
+			morph = { mode = modify gene = gene_mouth_open template = mouth_open value = 0.25 }
+		}
+		weight = { base = 0 modifier = { add = 10 is_female = no } }
+	}
+}
+beards = {
+	usage = game
+	selection_behavior = weighted_random
+	fallback = no_beard
+	no_beard = { dna_modifiers = { accessory = { mode = add gene = beards template = no_beard range = { 0 1 } } } }
+}
+`), testFile, collector)
+
+	for _, diagnostic := range collector.Diagnostics {
+		t.Errorf("unexpected: %s", diagnostic)
+	}
+
+	props, ok := table.Get("animations_props")
+	if !ok || props.Usage != "none" || len(props.Modifiers) != 2 {
+		t.Fatalf("animations_props = %+v", props)
+	}
+
+	saber, ok := props.Modifier("saber_attachment")
+	if !ok || len(saber.Genes) != 1 {
+		t.Fatalf("saber_attachment = %+v", saber)
+	}
+
+	if gene := saber.Genes[0]; gene.Kind != "accessory" || gene.Mode != "add" || gene.Gene != "props" || gene.Template != "gene_saber_01" || gene.Strength() != 1 || gene.Accessory != "prop_saber" {
+		t.Errorf("the saber's gene = %+v at %g", gene, gene.Strength())
+	}
+
+	smoking, _ := props.Modifier("smoking_attachment")
+	if len(smoking.Genes) != 2 || smoking.Genes[0].Strength() != 0.4 || smoking.Genes[1].Kind != "morph" || smoking.Genes[1].Mode != "modify" {
+		t.Errorf("smoking_attachment = %+v", smoking)
+	}
+
+	beards, _ := table.Get("beards")
+	if beards.SelectionBehavior != "weighted_random" || beards.Fallback != "no_beard" || beards.Usage != "game" {
+		t.Errorf("beards = %+v", beards)
+	}
+
+	if _, ok := props.Modifier("missing"); ok {
+		t.Error("found a modifier that is not there")
+	}
+}
+
+// A modifier of the wrong shape, a gene modifier of a kind the package does
+// not know and one that names no gene are reported, and what can be read
+// stays.
+func TestReadModifiersReportsProblems(t *testing.T) {
+	collector := &report.Collector{}
+	table := ReadModifiers(script.Parse(`
+group = {
+	odd = 3
+	broken = {
+		dna_modifiers = {
+			colour = { gene = hair_color }
+			accessory = { mode = add template = nothing range = { 1 } }
+		}
+	}
+}
+`), testFile, collector)
+
+	group, _ := table.Get("group")
+	if len(group.Modifiers) != 1 || len(group.Modifiers[0].Genes) != 1 || group.Modifiers[0].Genes[0].Strength() != 0 {
+		t.Errorf("group = %+v", group)
+	}
+
+	expect(t, collector.Diagnostics, report.SeverityWarning, "modifier odd should be a block")
+	expect(t, collector.Diagnostics, report.SeverityWarning, "range should be two numbers")
+
+	if len(collector.Diagnostics) != 4 {
+		t.Errorf("diagnostics = %v, want the odd modifier, the unknown colour, the missing gene and the range", collector.Diagnostics)
 	}
 }

@@ -72,12 +72,22 @@ type StatePair struct {
 	Head, Torso string
 }
 
-// AnimationVariant is a variant of a set, by its name. Its weight and the
-// props it dresses the portrait with are not read: they depend on the
-// character the game draws.
+// AnimationVariant is a variant of a set, by its name. Its weight is not
+// read: it depends on the character the game draws.
 type AnimationVariant struct {
 	Name      string
 	Animation StatePair
+
+	// Modifiers are the portrait modifiers the variant dresses the portrait
+	// with, such as the props it holds, in the order written.
+	Modifiers []ModifierChoice
+}
+
+// ModifierChoice names a portrait modifier of gfx/portraits/portrait_modifiers
+// by its group and its own name, as animations_props = smoking_attachment
+// does.
+type ModifierChoice struct {
+	Group, Modifier string
 }
 
 // The keys of an animation set.
@@ -161,7 +171,7 @@ func decodePortraitAnimations(r *database.Reader) PortraitAnimations {
 		}
 
 		child := r.Child(index, field.Value, "variant "+field.Key)
-		child.Known(keyWeight, keyPortraitModifier)
+		child.Known(keyWeight)
 
 		variant := AnimationVariant{Name: field.Key}
 
@@ -171,12 +181,39 @@ func decodePortraitAnimations(r *database.Reader) PortraitAnimations {
 			child.Missing(keyAnimation, "the variant plays no state")
 		}
 
+		for _, block := range child.Blocks(keyPortraitModifier) {
+			variant.Modifiers = append(variant.Modifiers, modifierChoices(child.Child(block.Index, block.Value, keyPortraitModifier))...)
+		}
+
 		child.Finish()
 
 		animations.Variants = append(animations.Variants, variant)
 	}
 
 	return animations
+}
+
+// modifierChoices reads a block of portrait modifiers, each the name of a
+// modifier under the key of its group.
+func modifierChoices(r *database.Reader) []ModifierChoice {
+	var choices []ModifierChoice
+
+	for index, field := range r.Fields() {
+		r.Known(field.Key)
+
+		name, ok := field.Value.Str()
+		if !ok || field.Value.IsBlock() {
+			r.Warn(index, field.Value, "modifier group %s should name a modifier, found %s; ignored", field.Key, field.Value.Describe())
+
+			continue
+		}
+
+		choices = append(choices, ModifierChoice{Group: field.Key, Modifier: name})
+	}
+
+	r.Finish()
+
+	return choices
 }
 
 // statePair reads a block of a state of the head and one of the torso, at a

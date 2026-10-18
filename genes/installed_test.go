@@ -229,6 +229,96 @@ func TestLoadInstalledAnimations(t *testing.T) {
 	}
 }
 
+// TestLoadInstalledModifiers loads the portrait modifiers of a real
+// installation, and follows every modifier an animation names to the
+// template of the gene it changes and the accessories that template draws.
+func TestLoadInstalledModifiers(t *testing.T) {
+	sources := installedSources(t)
+	set := folders.Open(sources)
+
+	table, diagnostics := LoadModifiers(set)
+
+	t.Logf("modifier groups %d, diagnostics %d", table.Len(), len(diagnostics))
+
+	checkClean(t, len(sources) == 1, diagnostics)
+
+	animations, _ := LoadAnimations(set)
+	genes := Load(set)
+	accessories, _ := LoadAccessories(set)
+
+	named := 0
+
+	for key, animation := range animations.All() {
+		for _, sex := range Sexes {
+			for _, variant := range animation.For(sex).Variants {
+				for _, choice := range variant.Modifiers {
+					named++
+
+					group, ok := table.Get(choice.Group)
+					if !ok {
+						t.Errorf("%s %s: no modifier group %s", key, variant.Name, choice.Group)
+
+						continue
+					}
+
+					modifier, ok := group.Modifier(choice.Modifier)
+					if !ok {
+						t.Errorf("%s %s: no modifier %s in %s", key, variant.Name, choice.Modifier, choice.Group)
+
+						continue
+					}
+
+					for _, change := range modifier.Genes {
+						checkModifiedGene(t, genes, accessories, sex, change)
+					}
+				}
+			}
+		}
+	}
+
+	if named == 0 {
+		t.Error("no animation names a modifier")
+	}
+}
+
+// checkModifiedGene checks that a gene a modifier changes is there, and that
+// what its template draws for a sex at the modifier's strength is an
+// accessory of gfx/portraits/accessories.
+func checkModifiedGene(t *testing.T, genes *Genes, accessories database.Table[Accessory], sex Sex, change GeneModifier) {
+	t.Helper()
+
+	if change.Kind != keyAccessory {
+		return
+	}
+
+	gene, ok := genes.AccessoryGene(change.Gene)
+	if !ok {
+		t.Errorf("no accessory gene %s", change.Gene)
+
+		return
+	}
+
+	template, ok := gene.Template(change.Template)
+	if !ok {
+		t.Errorf("accessory gene %s has no template %s", change.Gene, change.Template)
+
+		return
+	}
+
+	choice, ok := template.For(sex).Pick(change.Strength())
+	if change.Accessory != "" {
+		choice, ok = Choice{Accessory: change.Accessory}, true
+	}
+
+	if !ok {
+		return
+	}
+
+	if _, ok := accessories.Get(choice.Accessory); !ok && choice.Accessory != "" {
+		t.Errorf("%s %s for a %s picks %s, which is no accessory", change.Gene, change.Template, sex, choice.Accessory)
+	}
+}
+
 // TestLoadInstalledEthnicities loads the ethnicities of a real installation,
 // each of which flattens, and checks that the neutral preview of
 // ethnicity_template is the DNA the game's portrait editor writes out for it,
