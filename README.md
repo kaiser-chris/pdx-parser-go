@@ -24,13 +24,13 @@ none of the general packages depend on any particular game.
 
 | Package | What it does | Depends on | Stability |
 |---|---|---|---|
-| [`script`](script) | Parses the script language of the game files into a tree. | nothing | Follows the language, which has not changed in years. |
+| [`script`](script) | Parses the script language of the game files into a tree, and puts a definition into a file's text where it leaves the rest as it was. | nothing | Follows the language, which has not changed in years. |
 | [`report`](report) | Diagnostics: what a loader skipped, guessed at or found wrong. | nothing | Stable. |
 | [`folders`](folders) | Works out which files the game reads from the game and its mods, and in what order. | `script`, `report` | Follows the engine. |
 | [`database`](database) | Reads database folders such as `common/goods`: applies `INJECT:`, `REPLACE:` and the other modes, tracks where every part came from, and decodes definitions into your own types with a tolerant field reader. Also reads defines. | `script`, `folders`, `report` | Follows the engine. |
 | [`localization`](localization) | Parses and loads localization files, with `replace` folders. | `folders`, `report` | Follows the engine. |
 | [`asset`](asset) | Reads the 3D asset definitions in the `.asset` files anywhere below `gfx`: the `pdxmesh`, `entity` and `skeletal_animation_set` definitions, the references between them, and the files they name. | `script`, `folders`, `database`, `report` | Follows the engine. |
-| [`genes`](genes) | Reads the genes of the portraits in `common/genes`: morph genes and the attributes they set and the decals they lay, accessory genes, colour genes and age presets. Also the DNA of the characters in `common/dna_data`, the ethnicities of `common/ethnicities` and the DNA they preview as, the portrait accessories of `gfx/portraits/accessories`, and the animation sets of `gfx/portraits/portrait_animations`. | `script`, `folders`, `database`, `report` | Follows the engine. |
+| [`genes`](genes) | Reads the genes of the portraits in `common/genes`: morph genes and the attributes they set and the decals they lay, accessory genes, colour genes and age presets. Also the DNA of the characters in `common/dna_data`, the ethnicities of `common/ethnicities` and the DNA they preview as, the portrait accessories of `gfx/portraits/accessories`, and the animation sets of `gfx/portraits/portrait_animations`. Writes a DNA as `common/dna_data` holds one. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`portrait`](portrait) | Reads how the engine stages a portrait: the environments of `gfx/portraits/environments`, their cubemaps and lights, the cameras of `gfx/portraits/cameras`, and the tonemap and colour settings of `gfx/portraits/jomini_environment.txt`. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`victoria3`](victoria3) | The economy of Victoria 3: goods, buildings, production methods, pops, companies, technologies and eras. Also its coats of arms and named colours. | all of the above | **Follows the game.** Written against 1.13. |
 
@@ -162,6 +162,11 @@ dna, _ := genes.LoadDNA(set)
 lincoln, _ := dna.Get("dna_abraham_lincoln")
 value, _ := lincoln.Gene("gene_nose_size")
 fmt.Println(value.Dominant.Template, value.Dominant.Strength())
+
+// Written back into its file in place of the definition it was read from,
+// leaving the rest of the file, comments and all, as it was.
+merged, _, err := script.PutDefinition(file, "dna_abraham_lincoln", "dna_abraham_lincoln",
+	genes.WriteDNA("dna_abraham_lincoln", lincoln, "\n"))
 ```
 
 ## Robustness

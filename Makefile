@@ -16,6 +16,7 @@ gametest:
 ## fuzz: fuzz every parser for FUZZTIME each
 fuzz:
 	go test ./script -run '^$$' -fuzz FuzzParse -fuzztime $(FUZZTIME)
+	go test ./script -run '^$$' -fuzz FuzzPutDefinition -fuzztime $(FUZZTIME)
 	go test ./localization -run '^$$' -fuzz FuzzParse -fuzztime $(FUZZTIME)
 	go test ./victoria3 -run '^$$' -fuzz FuzzDecode -fuzztime $(FUZZTIME)
 	go test ./asset -run '^$$' -fuzz FuzzRead -fuzztime $(FUZZTIME)
