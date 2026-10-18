@@ -35,7 +35,8 @@ type DNA struct {
 	database.Definition
 
 	// String is the DNA written as the game encodes it, when the file gives
-	// it that way rather than through Genes.
+	// it that way rather than through Genes. Genes.ReadString reads it into
+	// genes, with the genes it was written with.
 	String string
 
 	// Enabled says whether the game uses the DNA. It is true when the file

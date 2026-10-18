@@ -30,7 +30,7 @@ none of the general packages depend on any particular game.
 | [`database`](database) | Reads database folders such as `common/goods`: applies `INJECT:`, `REPLACE:` and the other modes, tracks where every part came from, and decodes definitions into your own types with a tolerant field reader. Also reads defines. | `script`, `folders`, `report` | Follows the engine. |
 | [`localization`](localization) | Parses and loads localization files, with `replace` folders. | `folders`, `report` | Follows the engine. |
 | [`asset`](asset) | Reads the 3D asset definitions in the `.asset` files anywhere below `gfx`: the `pdxmesh`, `entity` and `skeletal_animation_set` definitions, the references between them, and the files they name. | `script`, `folders`, `database`, `report` | Follows the engine. |
-| [`genes`](genes) | Reads the genes of the portraits in `common/genes`: morph genes and the attributes they set and the decals they lay, accessory genes, colour genes and age presets. Also the DNA of the characters in `common/dna_data`, the ethnicities of `common/ethnicities` and the DNA they preview as, the portrait accessories of `gfx/portraits/accessories`, and the animation sets of `gfx/portraits/portrait_animations`. Writes a DNA as `common/dna_data` holds one. | `script`, `folders`, `database`, `report` | Follows the engine. |
+| [`genes`](genes) | Reads the genes of the portraits in `common/genes`: morph genes and the attributes they set and the decals they lay, accessory genes, colour genes and age presets. Also the DNA of the characters in `common/dna_data`, the ethnicities of `common/ethnicities` and the DNA they preview as, the portrait accessories of `gfx/portraits/accessories`, and the animation sets of `gfx/portraits/portrait_animations`. Writes a DNA as `common/dna_data` holds one or as the game's persistent DNA, and reads and writes DNA strings. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`portrait`](portrait) | Reads how the engine stages a portrait: the environments of `gfx/portraits/environments`, their cubemaps and lights, the cameras of `gfx/portraits/cameras`, and the tonemap and colour settings of `gfx/portraits/jomini_environment.txt`. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`victoria3`](victoria3) | The economy of Victoria 3: goods, buildings, production methods, pops, companies, technologies and eras. Also its coats of arms and named colours. | all of the above | **Follows the game.** Written against 1.13. |
 
@@ -167,7 +167,21 @@ fmt.Println(value.Dominant.Template, value.Dominant.Strength())
 // leaving the rest of the file, comments and all, as it was.
 merged, _, err := script.PutDefinition(file, "dna_abraham_lincoln", "dna_abraham_lincoln",
 	genes.WriteDNA("dna_abraham_lincoln", lincoln, "\n"))
+
+// The same genes as a DNA string, and as the game's persistent DNA.
+text, _ := loaded.WriteString(lincoln)
+again, _ := loaded.ReadString(text)
+persistent := genes.WritePersistentDNA("dna_abraham_lincoln", again, "\n")
 ```
+
+A DNA string, such as `z78g+0cGKAYrmni4AAAAfACI...`, is base64 of four bytes
+for each gene: the dominant allele's two values and then the recessive
+allele's, a colour gene's two places in its palette or a morph or accessory
+gene's template index and strength. The string names no gene. The genes come
+in the order the game defines them: colour genes, then morph genes, then
+accessory genes. A string can therefore only be read with the genes it was
+written with. Once a gene is added, every string written before it is read
+wrong from that gene on.
 
 ## Robustness
 

@@ -62,6 +62,75 @@ func WriteDNA(key string, dna *DNA, lineBreak string) string {
 	return out.String()
 }
 
+// WritePersistentDNA writes a DNA under a key the way the game writes one out,
+// as its portrait editor's persistent DNA, which ReadDNA reads back as the
+// same genes, sex, age and numbers:
+//
+//	dna_identifier={
+//	    type=male
+//	    id=0
+//	    age=0.355000
+//	    genes={
+//	        hair_color={ 3 248 3 248 }
+//	        gene_cheek_fat={ "cheek_fat" 155 "cheek_fat" 139 }
+//	    }
+//	    entity={ 0 0 }
+//	}
+//
+// It is written as the game writes it, without spaces around the equals
+// signs. A DNA that does not say its sex is written as male, the first the
+// game knows, one without an ID as 0, and one without an age as 0, which the
+// game takes as the youngest; the age has six decimals, as the game gives
+// it. The random seed is written only when the DNA has one. The entity is
+// always { 0 0 }, the default, as the game's own files have it.
+//
+// lineBreak ends every line, as for WriteDNA.
+func WritePersistentDNA(key string, dna *DNA, lineBreak string) string {
+	var out strings.Builder
+
+	line := func(depth int, text string) {
+		out.WriteString(strings.Repeat("    ", depth))
+		out.WriteString(text)
+		out.WriteString(lineBreak)
+	}
+
+	if dna == nil {
+		dna = &DNA{}
+	}
+
+	sex := dna.Sex
+	if sex == "" {
+		sex = sexKeys[Male]
+	}
+
+	id := dna.ID
+	if id == "" {
+		id = "0"
+	}
+
+	line(0, key+"={")
+	line(1, keyType+"="+sex)
+	line(1, keyID+"="+id)
+
+	if dna.RandomSeed != "" {
+		line(1, keyRandomSeed+"="+dna.RandomSeed)
+	}
+
+	line(1, keyAge+"="+strconv.FormatFloat(dna.Age.Value, 'f', 6, 64))
+	line(1, keyGenes+"={")
+
+	for _, gene := range dna.Genes {
+		colour := gene.Dominant.Template == "" && gene.Recessive.Template == ""
+		line(2, gene.Gene+"={ "+writeAllele(gene.Dominant, colour)+" "+writeAllele(gene.Recessive, colour)+" }")
+	}
+
+	line(1, "}")
+	line(1, keyEntity+"={ 0 0 }")
+	out.WriteString("}")
+
+	return out.String()
+}
+
 // writeAllele writes one allele: a place in a palette for a colour gene, or a
 // template and its strength for any other. A gene is a colour gene when
 // neither allele names a template; the game writes an allele of no template
