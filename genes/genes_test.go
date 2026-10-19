@@ -1020,3 +1020,35 @@ func TestLoadDNAFromEitherFolder(t *testing.T) {
 		}
 	}
 }
+
+// A decal whose textures are written in several blocks has them all, as
+// Europa Universalis 5 writes its expressions' diffuse and normal maps.
+func TestDecalTexturesInSeveralBlocks(t *testing.T) {
+	genes, diagnostics := read(t, `
+morph_genes = {
+	expressions_eyes = {
+		squint_03 = {
+			index = 3
+			male = {
+				decal = {
+					body_part = head
+					textures = { diffuse = "eyes_diffuse.dds" }
+					textures = { normal = "eyes_normal.dds" }
+				}
+			}
+		}
+	}
+}
+`)
+
+	for _, diagnostic := range diagnostics {
+		t.Errorf("unexpected diagnostic: %s", diagnostic)
+	}
+
+	gene, _ := genes.MorphGenes.Get("expressions_eyes")
+	squint, _ := gene.Template("squint_03")
+
+	if decals := squint.For(Male).Decals; len(decals) != 1 || decals[0].Textures.Diffuse != "eyes_diffuse.dds" || decals[0].Textures.Normal != "eyes_normal.dds" {
+		t.Errorf("decals = %+v", decals)
+	}
+}

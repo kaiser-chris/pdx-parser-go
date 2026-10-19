@@ -445,17 +445,25 @@ func decodeDecal(r *database.Reader) Decal {
 }
 
 // decalTextures reads a block holding a value for each texture of a decal.
+// Several blocks add up, a later one replacing only what it names, as
+// Europa Universalis 5 writes a diffuse map and a normal map each in a block
+// of its own:
+//
+//	textures = { diffuse = "...diffuse.dds" }
+//	textures = { normal = "...normal.dds" }
 func decalTextures(r *database.Reader, key string) DecalTextures {
 	var textures DecalTextures
 
 	for _, block := range r.Blocks(key) {
 		child := r.Child(block.Index, block.Value, key)
 
-		textures = DecalTextures{
-			Diffuse:    child.Text(keyDiffuse),
-			Normal:     child.Text(keyNormal),
-			Specular:   child.Text(keySpecular),
-			Properties: child.Text(keyProperties),
+		for _, field := range []struct {
+			key    string
+			target *string
+		}{{keyDiffuse, &textures.Diffuse}, {keyNormal, &textures.Normal}, {keySpecular, &textures.Specular}, {keyProperties, &textures.Properties}} {
+			if value := child.Text(field.key); value != "" {
+				*field.target = value
+			}
 		}
 
 		child.Finish()
