@@ -25,6 +25,16 @@ import (
 // writes out has, such as its age; the genes are what a definition of
 // common/dna_data holds.
 //
+// A DNA with a priority or tags is written as Europa Universalis 5's
+// common/persistent_dna holds one: the priority and the tags first, and no
+// enabled, which its files never write:
+//
+//	magnus_eriksson = {
+//	    priority = 1
+//	    tags = { swe_magnus_eriksson }
+//	    portrait_info = { ... }
+//	}
+//
 // lineBreak ends every line, "\n" or "\r\n", so that a definition put into a
 // file matches the lines around it. The definition ends with its closing
 // brace, without a line break after it.
@@ -38,25 +48,38 @@ func WriteDNA(key string, dna *DNA, lineBreak string) string {
 	}
 
 	line(0, key+" = {")
+
+	persistent := dna != nil && (dna.Priority.Set || len(dna.Tags) > 0)
+	if persistent {
+		if dna.Priority.Set {
+			line(1, keyPriority+" = "+strconv.FormatFloat(dna.Priority.Value, 'f', -1, 64))
+		}
+
+		if len(dna.Tags) > 0 {
+			line(1, keyTags+" = { "+strings.Join(dna.Tags, " ")+" }")
+		}
+	}
+
 	line(1, keyPortraitInfo+" = {")
 	line(2, keyGenes+" = {")
 
 	if dna != nil {
 		for _, gene := range dna.Genes {
-			colour := gene.Dominant.Template == "" && gene.Recessive.Template == ""
-			line(3, gene.Gene+" = { "+writeAllele(gene.Dominant, colour)+" "+writeAllele(gene.Recessive, colour)+" }")
+			line(3, gene.Gene+" = { "+writeAllele(gene.Dominant, gene.Colour)+" "+writeAllele(gene.Recessive, gene.Colour)+" }")
 		}
 	}
 
 	line(2, "}")
 	line(1, "}")
 
-	enabled := "yes"
-	if dna != nil && !dna.Enabled {
-		enabled = "no"
-	}
+	if !persistent {
+		enabled := "yes"
+		if dna != nil && !dna.Enabled {
+			enabled = "no"
+		}
 
-	line(1, keyEnabled+" = "+enabled)
+		line(1, keyEnabled+" = "+enabled)
+	}
 	out.WriteString("}")
 
 	return out.String()
@@ -120,8 +143,7 @@ func WritePersistentDNA(key string, dna *DNA, lineBreak string) string {
 	line(1, keyGenes+"={")
 
 	for _, gene := range dna.Genes {
-		colour := gene.Dominant.Template == "" && gene.Recessive.Template == ""
-		line(2, gene.Gene+"={ "+writeAllele(gene.Dominant, colour)+" "+writeAllele(gene.Recessive, colour)+" }")
+		line(2, gene.Gene+"={ "+writeAllele(gene.Dominant, gene.Colour)+" "+writeAllele(gene.Recessive, gene.Colour)+" }")
 	}
 
 	line(1, "}")
@@ -132,9 +154,9 @@ func WritePersistentDNA(key string, dna *DNA, lineBreak string) string {
 }
 
 // writeAllele writes one allele: a place in a palette for a colour gene, or a
-// template and its strength for any other. A gene is a colour gene when
-// neither allele names a template; the game writes an allele of no template
-// beside one that has a template as an empty one, "" 0.
+// template and its strength for any other, as GeneValue.Colour says; the
+// game writes an allele of no template beside one that has a template as an
+// empty one, "" 0.
 func writeAllele(a Allele, colour bool) string {
 	if colour {
 		return strconv.Itoa(a.Value) + " " + strconv.Itoa(a.Second)

@@ -135,6 +135,7 @@ func (g *Genes) ReadString(text string) (*DNA, report.Diagnostics) {
 		value := GeneValue{Gene: gene.name}
 
 		if gene.colour {
+			value.Colour = true
 			value.Dominant = Allele{Value: int(values[0]), Second: int(values[1])}
 			value.Recessive = Allele{Value: int(values[2]), Second: int(values[3])}
 		} else {
@@ -157,8 +158,14 @@ func decodeBase64(text string) ([]byte, error) {
 }
 
 // template returns the template of an index, or the first template of a gene
-// that has no template of that index.
+// that has no template of that index. A gene of no templates at all, as
+// Europa Universalis 5's pose, which a DNA gives as "" 127, reads as the
+// empty template, whatever the index.
 func (s *stringGene) template(index int, problem func(report.Severity, string, ...any)) string {
+	if len(s.templates) == 0 {
+		return ""
+	}
+
 	if template, ok := s.templates[index]; ok {
 		return template
 	}
@@ -240,8 +247,13 @@ func (g *Genes) WriteString(dna *DNA) (string, report.Diagnostics) {
 }
 
 // index returns the index of a template, or that of the gene's first
-// template for one it does not have.
+// template for one it does not have. A gene of no templates at all writes the
+// empty template it is given as 0.
 func (s *stringGene) index(template string, problem func(report.Severity, string, ...any)) byte {
+	if len(s.indices) == 0 && template == "" {
+		return 0
+	}
+
 	index, ok := s.indices[template]
 	if !ok {
 		problem(report.SeverityWarning, "gene %s has no template %q; written as %q", s.name, template, s.first)

@@ -32,6 +32,21 @@ type Settings struct {
 	// file says.
 	Tonemap database.Opt[Tonemap]
 
+	// TonemapFunction is which curve the light is turned into colours by, such
+	// as Uncharted for the curve of Tonemap, and ExposureFunction how the
+	// light is scaled before, such as FixedExposure for Exposure, when the file
+	// says. Where it does not, the engine picks, which no file shows.
+	TonemapFunction, ExposureFunction string
+	Exposure                          database.Opt[float64]
+
+	// HueOffset turns the hue of the picture, as SaturationScale and
+	// ValueScale scale the rest of it.
+	HueOffset database.Opt[float64]
+
+	// Bloom is the glow the brightest parts of the picture shed over it, when
+	// the file says.
+	Bloom database.Opt[Bloom]
+
 	// SSAO is how the portrait is darkened where its surfaces are hidden from
 	// the light around them, when the file says.
 	SSAO database.Opt[SSAO]
@@ -54,6 +69,14 @@ type SSAO struct {
 	BlurWidth, BlurScale  float64
 	BlurDepthPower        float64
 	BlurWeights           int
+}
+
+// Bloom is the glow the engine lays over a picture: a blurred copy of it,
+// of the parts brighter than the threshold, the steeper the more sharply,
+// blended in by the strength.
+type Bloom struct {
+	Enabled                        bool
+	Strength, Steepness, Threshold float64
 }
 
 // Tonemap is the filmic curve of John Hable, which the engine turns the light
@@ -82,6 +105,14 @@ const (
 	keyToeNumerator         = "toe_numerator"
 	keyToeDenominator       = "toe_denominator"
 	keyLinearWhite          = "linear_white"
+	keyTonemapFunction      = "tonemap_function"
+	keyExposureFunction     = "exposure_function"
+	keyExposure             = "exposure"
+	keyHueOffset            = "hue_offset"
+	keyBloomEnabled         = "bloom_enabled"
+	keyBloomStrength        = "bloom_strength"
+	keyBloomSteepness       = "bloom_steepness"
+	keyBloomThreshold       = "bloom_threshold"
 )
 
 // LoadSettings reads the settings of a set of folders: the last of them that
@@ -117,12 +148,26 @@ func ReadSettings(document *script.Document, file folders.File, collector *repor
 	}
 
 	r := database.NewReader(definition, kindSettings, collector)
+	r.Known(settingsOthers...)
 
 	settings := Settings{
 		SaturationScale:      r.Number(keySaturationScale),
 		ValueScale:           r.Number(keyValueScale),
 		ShadowmapKernelScale: r.Number(keyShadowmapKernelScale),
 		ShadowmapFadeFactor:  r.Number(keyShadowmapFadeFactor),
+		TonemapFunction:      r.Text(keyTonemapFunction),
+		ExposureFunction:     r.Text(keyExposureFunction),
+		Exposure:             r.Number(keyExposure),
+		HueOffset:            r.Number(keyHueOffset),
+	}
+
+	if r.Has(keyBloomEnabled) || r.Has(keyBloomStrength) {
+		settings.Bloom = database.Some(Bloom{
+			Enabled:   r.FlagOr(keyBloomEnabled, false),
+			Strength:  r.NumberOr(keyBloomStrength, 0),
+			Steepness: r.NumberOr(keyBloomSteepness, 0),
+			Threshold: r.NumberOr(keyBloomThreshold, 0),
+		})
 	}
 
 	if r.Has(keyColorBalance) {
@@ -202,3 +247,18 @@ const (
 	keyBlurDepthPower = "blur_depth_power"
 	keyBlurWeights    = "blur_weights"
 )
+
+// settingsOthers are the settings of the file a portrait is not drawn with:
+// the sun, the ambient light, the fog and the water of the map, which some
+// games keep in the same file, the lens flares, which are off, and how the
+// exposure adapts to a picture, which only the map's does.
+var settingsOthers = []string{
+	"ambient_pos_x", "ambient_neg_x", "ambient_pos_y", "ambient_neg_y", "ambient_pos_z", "ambient_neg_z",
+	"shadow_ambient_pos_x", "shadow_ambient_neg_x", "shadow_ambient_pos_y", "shadow_ambient_neg_y", "shadow_ambient_pos_z", "shadow_ambient_neg_z",
+	"sun_color", "sun_intensity", "sun_direction", "shadow_direction_offset",
+	"cubemap", "cubemap_intensity", "cubemap_y_rotation",
+	"fog_color", "fog_begin", "fog_end", "fog_max", "water_sun_direction_offset",
+	"hdr_min_adjustment", "hdr_max_adjustment", "hdr_adjustment_speed",
+	"tonemap_middlegrey", "tonemap_whiteluminance", "shadowmap_depthbias",
+	"lensflare_dirt", "lensflare", "additional_lensflare",
+}

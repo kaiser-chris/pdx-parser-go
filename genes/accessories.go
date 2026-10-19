@@ -1,6 +1,7 @@
 package genes
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/kaiser-chris/pdx-parser-go/database"
@@ -126,16 +127,19 @@ func tags(r *database.Reader, key string) []string {
 }
 
 // Has reports whether a portrait with the tags given may draw the entity:
-// whether it has every tag the entity requires.
+// whether it has every tag the entity requires, and none it requires the
+// portrait not to have, which Europa Universalis 5 writes as not(tag): a
+// hairstyle is drawn under not(hair_covered) where no hat covers it.
 func (e AccessoryEntity) Has(tags []string) bool {
 	for _, required := range e.RequiredTags {
-		found := false
-
-		for _, tag := range tags {
-			found = found || tag == required
+		tag, absent := strings.CutPrefix(required, "not(")
+		if absent && strings.HasSuffix(tag, ")") {
+			tag = strings.TrimSpace(strings.TrimSuffix(tag, ")"))
+		} else {
+			tag, absent = required, false
 		}
 
-		if !found {
+		if slices.Contains(tags, tag) == absent {
 			return false
 		}
 	}

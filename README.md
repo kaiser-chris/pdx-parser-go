@@ -31,7 +31,7 @@ none of the general packages depend on any particular game.
 | [`localization`](localization) | Parses and loads localization files, with `replace` folders. | `folders`, `report` | Follows the engine. |
 | [`asset`](asset) | Reads the 3D asset definitions in the `.asset` files anywhere below `gfx`: the `pdxmesh`, `entity` and `skeletal_animation_set` definitions, the references between them, and the files they name. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`genes`](genes) | Reads the genes of the portraits in `common/genes`: morph genes and the attributes they set and the decals they lay, accessory genes, colour genes and age presets. Also the DNA of the characters in `common/dna_data`, the ethnicities of `common/ethnicities` and the DNA they preview as, the portrait accessories of `gfx/portraits/accessories`, the animation sets of `gfx/portraits/portrait_animations` with the portrait modifiers their variants name, and the portrait modifiers of `gfx/portraits/portrait_modifiers`, such as the props an animation holds. Writes a DNA as `common/dna_data` holds one or as the game's persistent DNA, and reads and writes DNA strings. | `script`, `folders`, `database`, `report` | Follows the engine. |
-| [`portrait`](portrait) | Reads how the engine stages a portrait: the environments of `gfx/portraits/environments`, their cubemaps and lights, the cameras of `gfx/portraits/cameras`, and the tonemap and colour settings of `gfx/portraits/jomini_environment.txt`. | `script`, `folders`, `database`, `report` | Follows the engine. |
+| [`portrait`](portrait) | Reads how the engine stages a portrait: the environments of `gfx/portraits/environments`, their cubemaps and lights, the cameras of `gfx/portraits/cameras`, and the exposure, tonemap, bloom and colour settings of `gfx/portraits/jomini_environment.txt`, and how `gfx/portraits/portraitsettings.txt` puts a portrait together: the head and torso of each age and sex, the joints the head is attached by, and whether the palettes are sRGB. | `script`, `folders`, `database`, `report` | Follows the engine. |
 | [`victoria3`](victoria3) | The economy of Victoria 3: goods, buildings, production methods, pops, companies, technologies and eras. Also its coats of arms and named colours. | all of the above | **Follows the game.** Written against 1.13. |
 
 `victoria3` is the one package expected to date. When the game adds or renames
@@ -247,7 +247,9 @@ read them and reported.
 - A game that splits its files into layers, folders such as `in_game` and
   `main_menu` that each hold a `common` and a `localization`, has a folder
   looked for in every layer, so `common/goods` finds `in_game/common/goods`. A
-  folder can also be named with its layer to read that layer alone.
+  folder can also be named with its layer to read that layer alone. A single
+  file, such as `gfx/portraits/portraitsettings.txt`, is looked for in every
+  layer the same way.
 - DLCs in the game's `dlc` folder that hold game files are read right after
   the game, each as a folder of its own.
 

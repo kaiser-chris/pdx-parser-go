@@ -9,8 +9,23 @@ import (
 	"github.com/kaiser-chris/pdx-parser-go/script"
 )
 
-// FolderDNA is where the DNA of the characters the game knows in advance is.
-var FolderDNA = folders.Folder{Path: "common/dna_data"}
+// FolderDNA is where the DNA of the characters the game knows in advance is,
+// in Victoria 3, and FolderPersistentDNA where Europa Universalis 5 keeps
+// them, in the same shape, with a priority and the tags of the characters
+// they are for beside the portrait:
+//
+//	magnus_eriksson = {
+//		priority = 1
+//		tags = { swe_magnus_eriksson }
+//		portrait_info = { genes = { ... } }
+//	}
+var (
+	FolderDNA           = folders.Folder{Path: "common/dna_data"}
+	FolderPersistentDNA = folders.Folder{Path: "common/persistent_dna"}
+)
+
+// DNAFolders are the folders the DNA of characters is in, in every game.
+var DNAFolders = []folders.Folder{FolderDNA, FolderPersistentDNA}
 
 // kindDNA names a DNA in diagnostics.
 const kindDNA = "dna"
@@ -53,6 +68,12 @@ type DNA struct {
 	Age        database.Opt[float64]
 	ID         string
 	RandomSeed string
+
+	// Priority and Tags are what Europa Universalis 5's persistent DNA says
+	// beside the portrait: which DNA wins where several are for a character,
+	// and the tags of the characters it is for, when the file says.
+	Priority database.Opt[float64]
+	Tags     []string
 }
 
 // Gene returns the value of a gene by name.
@@ -70,6 +91,12 @@ func (d *DNA) Gene(name string) (*GeneValue, bool) {
 type GeneValue struct {
 	// Gene is the name of the gene.
 	Gene string
+
+	// Colour says the gene is a colour gene, whose alleles are places in a
+	// palette, written as four numbers. Any other gene names a template in
+	// each allele, even an empty one, as Europa Universalis 5's pose gene,
+	// which has none, writes pose = { "" 127 "" 127 }.
+	Colour bool
 
 	Dominant, Recessive Allele
 }
@@ -108,15 +135,26 @@ const (
 	keyType         = "type"
 	keyID           = "id"
 	keyRandomSeed   = "random_seed"
+	keyTags         = "tags"
 )
 
-// LoadDNA reads the DNA of a set of folders, by key.
+// LoadDNA reads the DNA of a set of folders, by key: those of every folder of
+// DNAFolders, of which each game has one.
 //
 // Loading never fails. Everything worth knowing about the files is in the
 // diagnostics.
 func LoadDNA(set *folders.Set) (database.Table[DNA], report.Diagnostics) {
 	collector := &report.Collector{}
-	store := database.Collect(set, FolderDNA, kindDNA, collector)
+	store := database.NewStore(kindDNA)
+
+	for _, folder := range DNAFolders {
+		files, diagnostics := set.Files(folder)
+		collector.AddAll(diagnostics)
+
+		for _, file := range database.ParseFiles(files, collector) {
+			store.AddDocument(file.Document, file.File, collector)
+		}
+	}
 
 	table := database.Decode(store, collector, func(r *database.Reader, _ *database.Definition) *DNA {
 		return decodeDNA(r)
@@ -154,6 +192,8 @@ func decodeDNA(r *database.Reader) *DNA {
 	dna.Age = r.Number(keyAge)
 	dna.ID = r.Raw(keyID).Text
 	dna.RandomSeed = r.Raw(keyRandomSeed).Text
+	dna.Priority = r.Number(keyPriority)
+	dna.Tags = r.Names(keyTags)
 
 	return dna
 }
@@ -199,6 +239,7 @@ func geneValue(r *database.Reader, index int, field script.Field) (GeneValue, bo
 			whole[position] = allele(r, index, field, number)
 		}
 
+		value.Colour = true
 		value.Dominant = Allele{Value: whole[0], Second: whole[1]}
 		value.Recessive = Allele{Value: whole[2], Second: whole[3]}
 

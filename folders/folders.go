@@ -295,7 +295,10 @@ func (s *Set) Files(folder Folder) ([]File, report.Diagnostics) {
 //
 // A folder that lists the file's directory as a replace path hides the folders
 // before it, so a file only they have is not found. In a game with layers the
-// path names the layer it is in, as File.Relative does: in_game/gfx/....
+// path may name the layer it is in, as File.Relative does: in_game/gfx/....
+// A path that names none is looked for in each layer, in order of name, as
+// the game finds main_menu/gfx/portraits/portraitsettings.txt by
+// gfx/portraits/portraitsettings.txt.
 //
 // A path that climbs above the roots with ../ is read as if it stopped at
 // them, so Find never looks outside the folders it was given.
@@ -309,16 +312,30 @@ func (s *Set) Find(relative string) (File, bool) {
 
 	for order := len(s.roots) - 1; order >= 0; order-- {
 		root := s.roots[order]
-		onDisk := filepath.Join(root.dir, filepath.FromSlash(relative))
 
-		if info, err := os.Stat(onDisk); err == nil && !info.IsDir() {
-			file := File{Relative: relative, Path: onDisk, Source: root.Name, SourceOrder: order}
-
-			if layer, _, found := strings.Cut(relative, "/"); found && slices.Contains(root.layers, layer) {
-				file.Layer = layer
+		// A path that names no layer of a folder with layers is looked for in
+		// each of them: the game merges its layers, and the files that name
+		// another, such as the genes naming a palette, write the path below
+		// them.
+		candidates := []string{relative}
+		if first, _, _ := strings.Cut(relative, "/"); !slices.Contains(root.layers, first) {
+			for _, layer := range root.layers {
+				candidates = append(candidates, layer+"/"+relative)
 			}
+		}
 
-			return file, true
+		for _, candidate := range candidates {
+			onDisk := filepath.Join(root.dir, filepath.FromSlash(candidate))
+
+			if info, err := os.Stat(onDisk); err == nil && !info.IsDir() {
+				file := File{Relative: candidate, Path: onDisk, Source: root.Name, SourceOrder: order}
+
+				if layer, _, found := strings.Cut(candidate, "/"); found && slices.Contains(root.layers, layer) {
+					file.Layer = layer
+				}
+
+				return file, true
+			}
 		}
 
 		if root.replacePaths[directory] {

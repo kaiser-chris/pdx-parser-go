@@ -244,10 +244,87 @@ func TestReadReportsProblems(t *testing.T) {
 	}
 }
 
+// The assembly reads the entities of every age and sex, the attachments with
+// their joints in order, and the root, and leaves alone the settings of the
+// same file that are not about putting a portrait together.
+func TestReadAssembly(t *testing.T) {
+	collector := &report.Collector{}
+	assembly := ReadAssembly(script.Parse(`
+enable_posteffects = yes
+male = {
+	head = "male_head_entity"
+	torso = "male_body_entity"
+}
+boy = {
+	head = "male_head_entity"
+	torso = "boy_body_entity"
+}
+attach = {
+	what = head
+	where = torso
+	joint_attachment = {
+		parent_joint = "bn_neck_base"
+		child_joint = "head_root"
+	}
+	joint_attachment = { parent_joint = "bn_l_clavicle" child_joint = "bn_h_l_clavicle" }
+}
+root = torso
+srgb_color_palettes = yes
+ssao = { enabled = yes }
+`), testFile, collector)
+
+	for _, diagnostic := range collector.Diagnostics {
+		t.Errorf("unexpected diagnostic: %s", diagnostic)
+	}
+
+	if boy, ok := assembly.For("boy"); !ok || boy != (Entities{Head: "male_head_entity", Torso: "boy_body_entity"}) {
+		t.Errorf("a boy is drawn with %+v", boy)
+	}
+
+	if _, ok := assembly.For("girl"); ok {
+		t.Error("a girl is drawn with entities the file does not give her")
+	}
+
+	head, ok := assembly.Attachment("head", "torso")
+	want := []JointAttachment{{Parent: "bn_neck_base", Child: "head_root"}, {Parent: "bn_l_clavicle", Child: "bn_h_l_clavicle"}}
+
+	if !ok || len(head.Joints) != len(want) || head.Joints[0] != want[0] || head.Joints[1] != want[1] {
+		t.Errorf("the head is attached by %+v, want %+v", head, want)
+	}
+
+	if assembly.Root != "torso" {
+		t.Errorf("root = %q", assembly.Root)
+	}
+
+	if !assembly.SRGBColorPalettes {
+		t.Error("the palettes are not read as sRGB, which the file says they are")
+	}
+}
+
+// An assembly of entities and joints of the wrong kind reports them, and
+// keeps what can be read.
+func TestReadAssemblyReportsProblems(t *testing.T) {
+	collector := &report.Collector{}
+	assembly := ReadAssembly(script.Parse(`male = { head = { } torso = t legs = l } female = 5 attach = { what = head joint_attachment = 3 }`), testFile, collector)
+
+	if male, _ := assembly.For("male"); male.Torso != "t" || male.Head != "" {
+		t.Errorf("a man is drawn with %+v", male)
+	}
+
+	if len(assembly.Attachments) != 1 || assembly.Attachments[0].What != "head" || len(assembly.Attachments[0].Joints) != 0 {
+		t.Errorf("attachments = %+v", assembly.Attachments)
+	}
+
+	if len(collector.Diagnostics) != 4 {
+		t.Errorf("diagnostics = %v, want the head that is a block, the legs, the woman who is no block and the joint that is no block", collector.Diagnostics)
+	}
+}
+
 func FuzzRead(f *testing.F) {
 	f.Add(`e = { cubemap = "c" lights = { 0 = { type = "spot_light" color = hsv{ 1 1 1 } position = cylindrical{ 1 2 3 } } } shadow_camera = { fov = 1 } }`)
 	f.Add(`c = { camera = { position = cylindrical{ 1 2 3 } camera_near_far = { 1 2 } } }`)
 	f.Add(`tonemap_curve = { shoulder_strength = 1 } colorbalance = { 1 2 3 } levels_min = hsv{ 0 0 0 }`)
+	f.Add(`male = { head = h torso = t } attach = { what = head where = torso joint_attachment = { parent_joint = a child_joint = b } } root = torso`)
 
 	f.Fuzz(func(t *testing.T, input string) {
 		collector := &report.Collector{}
@@ -261,6 +338,7 @@ func FuzzRead(f *testing.F) {
 
 		ReadCameras(document, testFile, collector)
 		ReadSettings(document, testFile, collector)
+		ReadAssembly(document, testFile, collector)
 	})
 }
 
@@ -289,9 +367,16 @@ func TestLoadInstalled(t *testing.T) {
 
 	t.Logf("%d environments, %d cameras", environments.Len(), cameras.Len())
 
-	standard, ok := environments.Get("environment_standard")
-	if !ok || standard.Cubemap == "" || len(standard.Lights) == 0 {
-		t.Errorf("environment_standard = %+v", standard)
+	if environments.Len() == 0 {
+		t.Error("the game has no environments")
+	}
+
+	// Every environment lights the portrait from a cubemap and lights of its
+	// own, and casts shadows from a camera, its own or one it borrows.
+	for key, environment := range environments.All() {
+		if environment.Cubemap == "" || len(environment.Lights) == 0 || !environment.ShadowCamera.Set {
+			t.Errorf("%s = %+v", key, environment)
+		}
 	}
 
 	if _, ok := cameras.Get("camera_head"); !ok {
@@ -300,5 +385,89 @@ func TestLoadInstalled(t *testing.T) {
 
 	if _, ok := settings.Tonemap.Get(); !ok {
 		t.Error("the settings have no tonemap curve")
+	}
+}
+
+// TestLoadInstalledAssembly reads how a real installation puts its portraits
+// together, without a warning or a field this package does not know.
+func TestLoadInstalledAssembly(t *testing.T) {
+	game := os.Getenv("PDX_GAME_DIR")
+	if game == "" {
+		t.Skip("set PDX_GAME_DIR to the game folder to run this test")
+	}
+
+	assembly, diagnostics := LoadAssembly(folders.Open([]folders.Source{{Name: "game", Path: game}}))
+
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity >= report.SeverityWarning || strings.Contains(diagnostic.Message, "unknown field") {
+			t.Errorf("%s", diagnostic)
+		}
+	}
+
+	for _, group := range []string{"male", "female", "boy", "girl"} {
+		if entities, ok := assembly.For(group); !ok || entities.Head == "" || entities.Torso == "" {
+			t.Errorf("%s is drawn with %+v", group, entities)
+		}
+	}
+
+	if head, ok := assembly.Attachment("head", assembly.Root); !ok || len(head.Joints) == 0 {
+		t.Errorf("the head is attached to the %s by %+v", assembly.Root, head)
+	}
+}
+
+// An environment that names another for its shadow camera casts its shadows
+// from the other's; one that names an environment without one casts none,
+// and says so.
+func TestBorrowedShadowCamera(t *testing.T) {
+	collector := &report.Collector{}
+	table := ReadEnvironments(script.Parse(`
+full_torso = { shadow_camera = { fov = 10 camera_near_far = { 4 500 } } }
+gui_portrait = { shadow_camera = full_torso }
+lost = { shadow_camera = nowhere }
+odd = { shadow_camera = 5 }
+`), testFile, collector)
+
+	gui, _ := table.Get("gui_portrait")
+	if camera, ok := gui.ShadowCamera.Get(); !ok || camera.FOV.Or(0) != 10 || gui.ShadowCameraOf != "full_torso" {
+		t.Errorf("gui_portrait casts from %+v", gui.ShadowCamera)
+	}
+
+	if lost, _ := table.Get("lost"); lost.ShadowCamera.Set {
+		t.Errorf("lost casts from %+v", lost.ShadowCamera)
+	}
+
+	if len(collector.Diagnostics) != 2 {
+		t.Errorf("diagnostics = %v, want the environment that is not there and the number", collector.Diagnostics)
+	}
+}
+
+// The settings say how the light is exposed and tonemapped, and the bloom,
+// and leave alone those of the map that some games keep in the same file.
+func TestReadExposureAndBloom(t *testing.T) {
+	collector := &report.Collector{}
+	settings := ReadSettings(script.Parse(`
+sun_intensity = 6
+ambient_neg_x = hsv{ 0 0 0.4 }
+value_scale = 1.4
+bloom_strength = 0.13
+bloom_steepness = 1.0
+bloom_threshold = 0.0
+bloom_enabled = yes
+exposure = 1.0
+exposure_function = "FixedExposure"
+tonemap_function = "Uncharted"
+lensflare = { enabled = no }
+`), testFile, collector)
+
+	for _, diagnostic := range collector.Diagnostics {
+		t.Errorf("unexpected diagnostic: %s", diagnostic)
+	}
+
+	if settings.TonemapFunction != "Uncharted" || settings.ExposureFunction != "FixedExposure" || settings.Exposure.Or(0) != 1 {
+		t.Errorf("settings = %+v", settings)
+	}
+
+	if bloom, ok := settings.Bloom.Get(); !ok || !bloom.Enabled || bloom.Strength != 0.13 || bloom.Steepness != 1 {
+		t.Errorf("bloom = %+v", settings.Bloom)
 	}
 }

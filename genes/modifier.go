@@ -52,6 +52,12 @@ type ModifierGroup struct {
 	SelectionBehavior string
 	Fallback          string
 
+	// Priority orders the groups that change the same genes, a higher one
+	// winning, and Gruesome marks a group of disfiguring looks, such as those
+	// of the plague, when the file says.
+	Priority database.Opt[float64]
+	Gruesome database.Opt[bool]
+
 	// Modifiers are the modifiers of the group, in the order written. Their
 	// weights are not read: they depend on the character the game draws.
 	Modifiers []PortraitModifier
@@ -72,6 +78,10 @@ func (g *ModifierGroup) Modifier(name string) (*PortraitModifier, bool) {
 type PortraitModifier struct {
 	Name string
 
+	// OutfitTags are the outfits the modifier belongs to, such as
+	// no_clothes, when the file says.
+	OutfitTags []string
+
 	// Genes are what the modifier does to the genes of the portrait, in the
 	// order written.
 	Genes []GeneModifier
@@ -90,6 +100,10 @@ type GeneModifier struct {
 
 	// Gene and Template are the gene and its template.
 	Gene, Template string
+
+	// Type is the sex the change is for, such as female, when the file says;
+	// it is for every sex otherwise.
+	Type string
 
 	// Value is the strength the modifier gives, from 0 to 1, or Range the
 	// strengths it picks one from, by chance.
@@ -122,6 +136,8 @@ const (
 	keyUsage             = "usage"
 	keySelectionBehavior = "selection_behavior"
 	keyFallback          = "fallback"
+	keyGruesome          = "gruesome"
+	keyOutfitTags        = "outfit_tags"
 	keyDNAModifiers      = "dna_modifiers"
 	keyGene              = "gene"
 	keyMorph             = "morph"
@@ -162,11 +178,13 @@ func decodeModifierGroup(r *database.Reader) *ModifierGroup {
 		Usage:             r.Text(keyUsage),
 		SelectionBehavior: r.Text(keySelectionBehavior),
 		Fallback:          r.Text(keyFallback),
+		Priority:          r.Number(keyPriority),
+		Gruesome:          r.Flag(keyGruesome),
 	}
 
 	for index, field := range r.Fields() {
 		switch field.Key {
-		case keyUsage, keySelectionBehavior, keyFallback:
+		case keyUsage, keySelectionBehavior, keyFallback, keyPriority, keyGruesome:
 			continue
 		}
 
@@ -187,7 +205,7 @@ func decodeModifierGroup(r *database.Reader) *ModifierGroup {
 
 // decodePortraitModifier reads one modifier.
 func decodePortraitModifier(r *database.Reader, name string) PortraitModifier {
-	modifier := PortraitModifier{Name: name}
+	modifier := PortraitModifier{Name: name, OutfitTags: tags(r, keyOutfitTags)}
 
 	// The weight is a script of triggers of the character the game draws.
 	r.Known(keyWeight)
@@ -227,6 +245,7 @@ func decodeGeneModifier(r *database.Reader, kind string) GeneModifier {
 		Mode:     r.Text(keyMode),
 		Gene:     r.Text(keyGene),
 		Template: r.Text(keyTemplate),
+		Type:     r.Text(keyType),
 		Value:    r.Number(keyValue),
 	}
 

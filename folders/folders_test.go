@@ -425,4 +425,14 @@ func TestFind(t *testing.T) {
 	if !found || file.Layer != "in_game" {
 		t.Errorf("Find in a layer = %+v, %v", file, found)
 	}
+
+	// A path that names no layer is looked for in each of them.
+	file, found = layered.Find("gfx/models/ship.mesh")
+	if !found || file.Layer != "in_game" || file.Relative != "in_game/gfx/models/ship.mesh" {
+		t.Errorf("Find below the layers = %+v, %v", file, found)
+	}
+
+	if _, found := layered.Find("other_layer/gfx/models/ship.mesh"); found {
+		t.Error("found a file in a layer the folder does not have")
+	}
 }

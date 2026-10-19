@@ -31,6 +31,11 @@ func (s Sex) String() string {
 // Sexes are all four, in order.
 var Sexes = [...]Sex{Male, Female, Boy, Girl}
 
+// otherAges are the sexes written beside the four of Sex, for ages the game
+// draws a portrait at that this package does not tell apart. They are known,
+// so that they are not reported, but not read.
+var otherAges = []string{"adolescent_boy", "adolescent_girl", "infant"}
+
 // sexOf returns the sex a key names.
 func sexOf(key string) (Sex, bool) {
 	for sex, name := range sexKeys {
@@ -58,6 +63,8 @@ func sexes[T any](r *database.Reader, decode func(*database.Reader) T) (values [
 		aliases [len(sexKeys)]script.Node
 		places  [len(sexKeys)]int
 	)
+
+	r.Known(otherAges...)
 
 	for sex, key := range sexKeys {
 		index, ok := r.Last(key)

@@ -2,6 +2,8 @@ package genes
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -193,6 +195,44 @@ morph_genes = {
 	expect(t, diagnostics, report.SeverityWarning, "male is the same as male, which is not given")
 	expect(t, diagnostics, report.SeverityWarning, "female is the same as robot, which is no sex")
 	expect(t, diagnostics, report.SeverityWarning, "boy is the same as girl, which is not given")
+}
+
+// A value written as one number is the value at full strength, from nothing
+// at none, as Europa Universalis 5 writes some of its ageing settings.
+func TestSingleValue(t *testing.T) {
+	genes, diagnostics := read(t, `
+morph_genes = {
+	gene = {
+		aged = {
+			index = 0
+			male = {
+				setting = { attribute = a value = 0.7 }
+				setting = { attribute = b value = -0.2 required_tags = "x, y" }
+			}
+		}
+	}
+}
+`)
+
+	for _, diagnostic := range diagnostics {
+		t.Errorf("unexpected diagnostic: %s", diagnostic)
+	}
+
+	gene, _ := genes.MorphGenes.Get("gene")
+	aged, _ := gene.Template("aged")
+
+	settings := aged.For(Male).Settings
+	if len(settings) != 2 {
+		t.Fatalf("settings = %+v", settings)
+	}
+
+	if !near(settings[0].At(0), 0) || !near(settings[0].At(0.5), 0.35) || !near(settings[0].At(1), 0.7) {
+		t.Errorf("a = %+v", settings[0])
+	}
+
+	if !near(settings[1].At(1), -0.2) || len(settings[1].RequiredTags) != 2 {
+		t.Errorf("b = %+v", settings[1])
+	}
 }
 
 // What does not fit is reported and read as far as it goes.
@@ -498,6 +538,26 @@ prop_saber = {
 	}
 }
 
+// A tag written as not(tag) is one the portrait must not have, as Europa
+// Universalis 5 draws its hair where no hat covers it.
+func TestAccessoryWithoutATag(t *testing.T) {
+	hair := &Accessory{Entities: []AccessoryEntity{
+		{RequiredTags: []string{"no_hair"}},
+		{RequiredTags: []string{"not(hair_covered)"}, Entity: "bob_entity"},
+		{RequiredTags: []string{"not(hair_covered)"}, Entity: "curly_entity"},
+		{RequiredTags: []string{"hair_covered"}, Entity: "hat_hair_entity"},
+	}}
+
+	for _, test := range []struct {
+		tags []string
+		want string
+	}{{nil, "bob_entity"}, {[]string{"hair_covered"}, "hat_hair_entity"}, {[]string{"no_hair"}, ""}, {[]string{"other"}, "bob_entity"}} {
+		if chosen, ok := hair.Choose(test.tags); !ok || chosen.Entity != test.want {
+			t.Errorf("with tags %v chose %+v, want %q", test.tags, chosen, test.want)
+		}
+	}
+}
+
 // Age changes a value by the curve of its preset or its own.
 func TestAtAge(t *testing.T) {
 	genes, _ := read(t, `age_presets = {
@@ -683,13 +743,13 @@ lost = { template = "nowhere" }
 		want    []GeneValue
 	}{
 		{PreviewNeutral, []GeneValue{
-			{Gene: "skin_color"},
+			{Gene: "skin_color", Colour: true},
 			{Gene: "gene_nose", Dominant: Allele{Template: "small", Value: 127}, Recessive: Allele{Template: "small", Value: 127}},
 			{Gene: "gene_chin", Dominant: Allele{Template: "chin", Value: 127}, Recessive: Allele{Template: "chin", Value: 127}},
 			{Gene: "hairstyles", Dominant: Allele{Template: "no_hair"}, Recessive: Allele{Template: "no_hair"}},
 		}},
 		{PreviewLikeliest, []GeneValue{
-			{Gene: "skin_color", Dominant: Allele{Value: 63, Second: 63}, Recessive: Allele{Value: 63, Second: 63}},
+			{Gene: "skin_color", Colour: true, Dominant: Allele{Value: 63, Second: 63}, Recessive: Allele{Value: 63, Second: 63}},
 			{Gene: "gene_nose", Dominant: Allele{Template: "big", Value: 229}, Recessive: Allele{Template: "big", Value: 229}},
 			{Gene: "gene_chin", Dominant: Allele{Template: "chin", Value: 127}, Recessive: Allele{Template: "chin", Value: 127}},
 			{Gene: "hairstyles", Dominant: Allele{Template: "short", Value: 127}, Recessive: Allele{Template: "short", Value: 127}},
@@ -750,10 +810,11 @@ idle = {
 			portrait_modifier = { animations_props = smoking_attachment }
 		}
 	}
-	female = { default = { head = "idle3" torso = "idle3" } }
+	female = { default = { head = "idle3" torso = "idle3" } portrait_modifier = { animations = expression_angry } }
 	boy = { default = { head = "idle1" torso = "idle1" } }
 	girl = boy
 	infant = boy
+	adolescent_boy = { default = { head = "idle1" torso = "idle1" } }
 }
 `), testFile, collector)
 
@@ -781,6 +842,11 @@ idle = {
 
 	if female := idle.For(Female); female.Default.Head != "idle3" || len(female.Variants) != 0 {
 		t.Errorf("female = %+v", female)
+	}
+
+	// A portrait_modifier beside the default is the sex's own, not a variant.
+	if modifiers := idle.For(Female).Modifiers; !slices.Equal(modifiers, []ModifierChoice{{Group: "animations", Modifier: "expression_angry"}}) {
+		t.Errorf("the woman's modifiers are %+v, want her expression", modifiers)
 	}
 
 	for _, diagnostic := range collector.Diagnostics {
@@ -818,7 +884,7 @@ animations_props = {
 	usage = none
 	saber_attachment = {
 		dna_modifiers = {
-			accessory = { mode = add gene = props template = gene_saber_01 value = 1.0 accessory = prop_saber }
+			accessory = { mode = add gene = props template = gene_saber_01 value = 1.0 accessory = prop_saber type = male }
 		}
 	}
 	smoking_attachment = {
@@ -833,7 +899,9 @@ beards = {
 	usage = game
 	selection_behavior = weighted_random
 	fallback = no_beard
-	no_beard = { dna_modifiers = { accessory = { mode = add gene = beards template = no_beard range = { 0 1 } } } }
+	priority = 3
+	gruesome = no
+	no_beard = { dna_modifiers = { accessory = { mode = add gene = beards template = no_beard range = { 0 1 } } } outfit_tags = { no_clothes } }
 }
 `), testFile, collector)
 
@@ -842,7 +910,7 @@ beards = {
 	}
 
 	props, ok := table.Get("animations_props")
-	if !ok || props.Usage != "none" || len(props.Modifiers) != 2 {
+	if !ok || props.Usage != "none" || len(props.Modifiers) != 2 || props.Priority.Set || props.Gruesome.Set {
 		t.Fatalf("animations_props = %+v", props)
 	}
 
@@ -851,7 +919,7 @@ beards = {
 		t.Fatalf("saber_attachment = %+v", saber)
 	}
 
-	if gene := saber.Genes[0]; gene.Kind != "accessory" || gene.Mode != "add" || gene.Gene != "props" || gene.Template != "gene_saber_01" || gene.Strength() != 1 || gene.Accessory != "prop_saber" {
+	if gene := saber.Genes[0]; gene.Kind != "accessory" || gene.Mode != "add" || gene.Gene != "props" || gene.Template != "gene_saber_01" || gene.Strength() != 1 || gene.Accessory != "prop_saber" || gene.Type != "male" {
 		t.Errorf("the saber's gene = %+v at %g", gene, gene.Strength())
 	}
 
@@ -861,7 +929,7 @@ beards = {
 	}
 
 	beards, _ := table.Get("beards")
-	if beards.SelectionBehavior != "weighted_random" || beards.Fallback != "no_beard" || beards.Usage != "game" {
+	if beards.SelectionBehavior != "weighted_random" || beards.Fallback != "no_beard" || beards.Usage != "game" || beards.Priority.Or(0) != 3 || beards.Gruesome.Or(true) || len(beards.Modifiers) != 1 || !slices.Equal(beards.Modifiers[0].OutfitTags, []string{"no_clothes"}) {
 		t.Errorf("beards = %+v", beards)
 	}
 
@@ -897,5 +965,58 @@ group = {
 
 	if len(collector.Diagnostics) != 4 {
 		t.Errorf("diagnostics = %v, want the odd modifier, the unknown colour, the missing gene and the range", collector.Diagnostics)
+	}
+}
+
+// Europa Universalis 5's persistent DNA is a DNA of the same shape, with a
+// priority and the tags of the characters it is for.
+func TestPersistentDNA(t *testing.T) {
+	collector := &report.Collector{}
+	table := ReadDNA(script.Parse(`
+magnus_eriksson = {
+	priority = 1
+	tags = { swe_magnus_eriksson }
+	portrait_info = {
+		genes = {
+			hair_color={ 62 59 203 6 }
+			gene_cheek_fat={ "template_2" 119 "template_2" 174 }
+		}
+	}
+}
+`), folders.File{Relative: "common/persistent_dna/test.txt", Path: "test.txt", Source: "test"}, collector)
+
+	for _, diagnostic := range collector.Diagnostics {
+		t.Errorf("unexpected diagnostic: %s", diagnostic)
+	}
+
+	dna, ok := table.Get("magnus_eriksson")
+	if !ok || dna.Priority.Or(0) != 1 || !slices.Equal(dna.Tags, []string{"swe_magnus_eriksson"}) || len(dna.Genes) != 2 || !dna.Enabled {
+		t.Errorf("dna = %+v", dna)
+	}
+}
+
+// The DNA of a game is read from whichever folder it keeps it in.
+func TestLoadDNAFromEitherFolder(t *testing.T) {
+	root := t.TempDir()
+
+	for _, file := range []struct{ path, text string }{
+		{"victoria/common/dna_data/a.txt", `dna_a = { portrait_info = { genes = { hair_color = { 1 2 3 4 } } } }`},
+		{"europa/common/persistent_dna/b.txt", `dna_b = { priority = 1 portrait_info = { genes = { hair_color = { 1 2 3 4 } } } }`},
+	} {
+		path := filepath.Join(root, filepath.FromSlash(file.path))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte(file.text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for game, key := range map[string]string{"victoria": "dna_a", "europa": "dna_b"} {
+		table, _ := LoadDNA(folders.Open([]folders.Source{{Name: game, Path: filepath.Join(root, game)}}))
+		if !table.Has(key) || table.Len() != 1 {
+			t.Errorf("%s: %v, want %s", game, table.Keys(), key)
+		}
 	}
 }

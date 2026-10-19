@@ -39,8 +39,8 @@ accessory_genes = {
 // accessories, four bytes a gene, a template by its index.
 var (
 	stringTestDNA = &DNA{Enabled: true, Genes: []GeneValue{
-		{Gene: "hair_color", Dominant: Allele{Value: 1, Second: 2}, Recessive: Allele{Value: 3, Second: 4}},
-		{Gene: "skin_color", Dominant: Allele{Value: 5, Second: 6}, Recessive: Allele{Value: 7, Second: 8}},
+		{Gene: "hair_color", Colour: true, Dominant: Allele{Value: 1, Second: 2}, Recessive: Allele{Value: 3, Second: 4}},
+		{Gene: "skin_color", Colour: true, Dominant: Allele{Value: 5, Second: 6}, Recessive: Allele{Value: 7, Second: 8}},
 		{Gene: "gene_nose", Dominant: Allele{Template: "large", Value: 9}, Recessive: Allele{Template: "small", Value: 10}},
 		{Gene: "hairstyles", Dominant: Allele{Template: "short", Value: 11}, Recessive: Allele{Template: "long", Value: 255}},
 	}}
@@ -81,6 +81,27 @@ func TestDNAString(t *testing.T) {
 
 	if again, diagnostics := genes.ReadString(broken); !slices.Equal(again.Genes, stringTestDNA.Genes) || len(diagnostics) != 0 {
 		t.Errorf("read without padding over two lines: %+v, %v", again.Genes, diagnostics)
+	}
+}
+
+// A gene of no templates, as Europa Universalis 5's pose, is written and
+// read as the empty template, without a word.
+func TestDNAStringOfAGeneWithoutTemplates(t *testing.T) {
+	genes, _ := read(t, `morph_genes = { pose = { } gene_nose = { small = { index = 0 } } }`)
+
+	dna := &DNA{Genes: []GeneValue{
+		{Gene: "pose", Dominant: Allele{Value: 127}, Recessive: Allele{Value: 127}},
+		{Gene: "gene_nose", Dominant: Allele{Template: "small", Value: 9}, Recessive: Allele{Template: "small", Value: 10}},
+	}}
+
+	written, diagnostics := genes.WriteString(dna)
+	if len(diagnostics) != 0 {
+		t.Errorf("write: %v", diagnostics)
+	}
+
+	read, diagnostics := genes.ReadString(written)
+	if len(diagnostics) != 0 || !slices.Equal(read.Genes, dna.Genes) {
+		t.Errorf("read back %+v, %v; want %+v", read.Genes, diagnostics, dna.Genes)
 	}
 }
 

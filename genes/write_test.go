@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaiser-chris/pdx-parser-go/database"
 	"github.com/kaiser-chris/pdx-parser-go/folders"
 	"github.com/kaiser-chris/pdx-parser-go/report"
 	"github.com/kaiser-chris/pdx-parser-go/script"
@@ -41,7 +42,7 @@ func readBack(t *testing.T, written, key string) *DNA {
 // accessories alike, in the same order, as the game writes them.
 func TestWriteDNA(t *testing.T) {
 	dna := &DNA{Enabled: true, Genes: []GeneValue{
-		{Gene: "hair_color", Dominant: Allele{Value: 3, Second: 248}, Recessive: Allele{Value: 4, Second: 247}},
+		{Gene: "hair_color", Colour: true, Dominant: Allele{Value: 3, Second: 248}, Recessive: Allele{Value: 4, Second: 247}},
 		{Gene: "gene_cheek_fat", Dominant: Allele{Template: "cheek_fat", Value: 155}, Recessive: Allele{Template: "cheek_fat", Value: 139}},
 		{Gene: "hairstyles", Dominant: Allele{Template: "historical_hairstyles"}, Recessive: Allele{Template: "european_hairstyles", Value: 214}},
 		{Gene: "gene_shrink_body", Dominant: Allele{Template: "shrink_all", Value: 255}},
@@ -105,7 +106,7 @@ func TestWriteInstalledDNA(t *testing.T) {
 		}
 
 		read := readBack(t, WriteDNA(dna.Key, dna, "\n"), dna.Key)
-		if !slices.Equal(read.Genes, dna.Genes) || read.Enabled != dna.Enabled {
+		if !slices.Equal(read.Genes, dna.Genes) || read.Enabled != dna.Enabled || read.Priority != dna.Priority || !slices.Equal(read.Tags, dna.Tags) {
 			for index := range min(len(read.Genes), len(dna.Genes)) {
 				if read.Genes[index] != dna.Genes[index] {
 					t.Errorf("%s: %+v read back as %+v", dna.Key, dna.Genes[index], read.Genes[index])
@@ -121,4 +122,28 @@ func TestWriteInstalledDNA(t *testing.T) {
 	}
 
 	t.Logf("%d DNA written and read back", count)
+}
+
+// A DNA with a priority and tags is written as Europa Universalis 5's
+// persistent DNA holds one, without enabled, and reads back the same.
+func TestWritePersistentShape(t *testing.T) {
+	dna := &DNA{
+		Enabled:  true,
+		Priority: database.Some(1.0),
+		Tags:     []string{"swe_magnus_eriksson"},
+		Genes:    []GeneValue{{Gene: "hair_color", Colour: true, Dominant: Allele{Value: 62, Second: 59}, Recessive: Allele{Value: 203, Second: 6}}},
+	}
+
+	written := WriteDNA("magnus_eriksson", dna, "\n")
+
+	if !strings.Contains(written, "priority = 1\n") || !strings.Contains(written, "tags = { swe_magnus_eriksson }\n") || strings.Contains(written, "enabled") {
+		t.Errorf("written:\n%s", written)
+	}
+
+	collector := &report.Collector{}
+	read, ok := ReadDNA(script.Parse(written), dnaFile, collector).Get("magnus_eriksson")
+
+	if !ok || len(collector.Diagnostics) > 0 || read.Priority != dna.Priority || !slices.Equal(read.Tags, dna.Tags) || len(read.Genes) != 1 || read.Genes[0] != dna.Genes[0] {
+		t.Errorf("read back %+v, %v", read, collector.Diagnostics)
+	}
 }

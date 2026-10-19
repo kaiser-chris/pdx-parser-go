@@ -34,6 +34,10 @@ import (
 type MorphGene struct {
 	database.Definition
 
+	// Inheritable says whether a child inherits the gene from its parents,
+	// when the file says.
+	Inheritable database.Opt[bool]
+
 	// Group is the group of genes the gene belongs to, when the file says,
 	// such as eyes.
 	Group string
@@ -261,7 +265,7 @@ const (
 // geneFields are the keys of a gene that are not templates, for each kind of
 // gene.
 var (
-	morphGeneFields     = []string{keyGroup}
+	morphGeneFields     = []string{keyGroup, keyInheritable}
 	accessoryGeneFields = []string{keyGroup, keyInheritable}
 )
 
@@ -295,7 +299,7 @@ func templates(r *database.Reader, own []string, read func(index int, field scri
 
 // decodeMorphGene reads one morph gene.
 func decodeMorphGene(r *database.Reader) *MorphGene {
-	gene := &MorphGene{Group: r.Text(keyGroup)}
+	gene := &MorphGene{Inheritable: r.Flag(keyInheritable), Group: r.Text(keyGroup)}
 
 	templates(r, morphGeneFields, func(index int, field script.Field) {
 		child := r.Child(index, field.Value, "template "+field.Key)
@@ -378,6 +382,28 @@ func decodeSetting(r *database.Reader) Setting {
 		r.Missing(keyAttribute, "the setting sets nothing")
 	}
 
+	// Europa Universalis 5 writes some values as one number, value = 0.7,
+	// which is taken as the value at the full strength of the gene, from
+	// nothing at none: the range from 0 to it. The files do not say, but it
+	// is what keeps such a setting following its gene, as every other does.
+	if index, ok := r.Last(keyValue); ok {
+		if number, ok := r.Fields()[index].Value.Num(); ok {
+			setting.Value = database.Some(Range{Min: 0, Max: number})
+		} else {
+			setting.Value = valueRange(r)
+		}
+	}
+
+	setting.RequiredTags = tags(r, keyRequiredTags)
+
+	return setting
+}
+
+// valueRange reads the range a setting spreads the strength over, value = {
+// min = -0.5 max = 0.5 }: the last one written that gives both ends.
+func valueRange(r *database.Reader) database.Opt[Range] {
+	var value database.Opt[Range]
+
 	for _, block := range r.Blocks(keyValue) {
 		child := r.Child(block.Index, block.Value, keyValue)
 
@@ -385,23 +411,13 @@ func decodeSetting(r *database.Reader) Setting {
 		if !low.Set || !high.Set {
 			child.Missing("min or max", "the value is ignored")
 		} else {
-			setting.Value = database.Some(Range{Min: low.Value, Max: high.Value})
+			value = database.Some(Range{Min: low.Value, Max: high.Value})
 		}
 
 		child.Finish()
 	}
 
-	// The tags are written as one string, which may name several, separated
-	// by commas.
-	for _, tags := range r.Names(keyRequiredTags) {
-		for tag := range strings.SplitSeq(tags, ",") {
-			if tag = strings.TrimSpace(tag); tag != "" {
-				setting.RequiredTags = append(setting.RequiredTags, tag)
-			}
-		}
-	}
-
-	return setting
+	return value
 }
 
 // decodeDecal reads one decal.

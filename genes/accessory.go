@@ -59,6 +59,11 @@ type AccessoryTemplate struct {
 	// Index is the number the template goes by in a DNA string.
 	Index int
 
+	// SetTags are the tags a character the template is picked for is given,
+	// such as no_clothes, when the file says. They are written as one string,
+	// which may name several, separated by commas.
+	SetTags []string
+
 	// Sexes is what the template picks from for each sex, by Sex.
 	Sexes [len(sexKeys)]Accessories
 }
@@ -130,7 +135,7 @@ func decodeAccessoryGene(r *database.Reader) *AccessoryGene {
 
 	templates(r, accessoryGeneFields, func(index int, field script.Field) {
 		child := r.Child(index, field.Value, "template "+field.Key)
-		template := AccessoryTemplate{Name: field.Key, Index: integer(child, keyIndex, 0)}
+		template := AccessoryTemplate{Name: field.Key, Index: integer(child, keyIndex, 0), SetTags: tags(child, keySetTags)}
 
 		if !child.Has(keyIndex) {
 			child.Missing(keyIndex, "it is taken as 0")

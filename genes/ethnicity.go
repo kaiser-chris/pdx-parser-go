@@ -482,7 +482,7 @@ func (g *Genes) Preview(ethnicity *Ethnicity, preview Preview) *DNA {
 	}
 
 	for key := range g.ColorGenes.All() {
-		value := GeneValue{Gene: key}
+		value := GeneValue{Gene: key, Colour: true}
 
 		if preview == PreviewLikeliest && ethnicity != nil {
 			if color, ok := ethnicity.Color(key); ok {

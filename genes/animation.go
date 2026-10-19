@@ -27,7 +27,8 @@ import (
 //
 // Beside the default, a sex can have variants, which the game picks one of
 // by their weights, triggers of the character it draws, and which can dress
-// the portrait with props.
+// the portrait with props. Portrait modifiers written beside the default
+// dress the portrait whichever state it plays.
 
 // FolderAnimations is where the animations of portraits are.
 var FolderAnimations = folders.Folder{Path: "gfx/portraits/portrait_animations"}
@@ -61,6 +62,11 @@ type PortraitAnimations struct {
 	// Default is the states the portrait starts in when no variant is
 	// picked.
 	Default StatePair
+
+	// Modifiers are the portrait modifiers written beside the default, which
+	// dress the portrait whichever of the states of the set it plays, such as
+	// the expression of an angry set, in the order written.
+	Modifiers []ModifierChoice
 
 	// Variants are the other states the game can pick, in the order written.
 	Variants []AnimationVariant
@@ -99,11 +105,6 @@ const (
 	keyPortraitModifier = "portrait_modifier"
 )
 
-// otherAges are the sexes of an animation set beside the four of Sex, for
-// ages the game draws a portrait at that genes do not tell apart. They are
-// known, so that they are not reported, but not read.
-var otherAges = []string{"adolescent_boy", "adolescent_girl", "infant"}
-
 // LoadAnimations reads the animation sets of a set of folders, by name.
 //
 // Loading never fails. Everything worth knowing about the files is in the
@@ -141,8 +142,6 @@ func decodeAnimationSet(r *database.Reader) *AnimationSet {
 		set.Sexes[sex].SameAs = sameAs[sex]
 	}
 
-	r.Known(otherAges...)
-
 	return set
 }
 
@@ -159,6 +158,20 @@ func decodePortraitAnimations(r *database.Reader) PortraitAnimations {
 
 	for index, field := range r.Fields() {
 		if field.Key == keyDefault {
+			continue
+		}
+
+		// A portrait_modifier beside the default is the sex's own, not a
+		// variant, as Europa Universalis 5 writes the expressions of its sets.
+		if field.Key == keyPortraitModifier {
+			r.Known(field.Key)
+
+			if field.Value.IsBlock() {
+				animations.Modifiers = append(animations.Modifiers, modifierChoices(r.Child(index, field.Value, keyPortraitModifier))...)
+			} else {
+				r.Warn(index, field.Value, "%s should be a block, found %s; ignored", field.Key, field.Value.Describe())
+			}
+
 			continue
 		}
 

@@ -30,7 +30,11 @@ type Environment struct {
 	Lights []Light
 
 	// ShadowCamera is where the shadows are cast from, when the file says.
-	ShadowCamera database.Opt[Camera]
+	// An environment can name another instead, shadow_camera = full_torso,
+	// whose shadow camera it casts from: ShadowCameraOf is that name, and
+	// the loaders give it the other's camera where the other has one.
+	ShadowCamera   database.Opt[Camera]
+	ShadowCameraOf string
 }
 
 // The types of light.
@@ -99,9 +103,12 @@ func LoadEnvironments(set *folders.Set) (database.Table[Environment], report.Dia
 	collector := &report.Collector{}
 	store := database.Collect(set, FolderEnvironments, kindEnvironment, collector)
 
-	return database.Decode(store, collector, func(r *database.Reader, _ *database.Definition) *Environment {
+	table := database.Decode(store, collector, func(r *database.Reader, _ *database.Definition) *Environment {
 		return decodeEnvironment(r)
-	}), collector.Diagnostics
+	})
+	borrowShadowCameras(table, collector)
+
+	return table, collector.Diagnostics
 }
 
 // ReadEnvironments reads the environments of one file that has already been
@@ -110,9 +117,34 @@ func ReadEnvironments(document *script.Document, file folders.File, collector *r
 	store := database.NewStore(kindEnvironment)
 	store.AddDocument(document, file, collector)
 
-	return database.Decode(store, collector, func(r *database.Reader, _ *database.Definition) *Environment {
+	table := database.Decode(store, collector, func(r *database.Reader, _ *database.Definition) *Environment {
 		return decodeEnvironment(r)
 	})
+	borrowShadowCameras(table, collector)
+
+	return table
+}
+
+// borrowShadowCameras gives each environment that names another for its
+// shadow camera the other's. One that names an environment that is not
+// there, or that has no shadow camera of its own, is reported and casts no
+// shadows.
+func borrowShadowCameras(table database.Table[Environment], collector *report.Collector) {
+	for key, environment := range table.All() {
+		if environment.ShadowCameraOf == "" {
+			continue
+		}
+
+		other, ok := table.Get(environment.ShadowCameraOf)
+		if ok && other.ShadowCamera.Set {
+			environment.ShadowCamera = other.ShadowCamera
+
+			continue
+		}
+
+		origin := environment.Origin()
+		collector.Addf(report.SeverityWarning, origin.Source, origin.Path, 0, 0, kindEnvironment+" "+key, "casts its shadows from those of %s, which has no shadow camera of its own; it casts none", environment.ShadowCameraOf)
+	}
 }
 
 // decodeEnvironment reads one environment.
@@ -148,11 +180,19 @@ func decodeEnvironment(r *database.Reader) *Environment {
 		lights.Finish()
 	}
 
-	if blocks := r.Blocks(keyShadowCamera); len(blocks) > 0 {
-		last := blocks[len(blocks)-1]
-		child := r.Child(last.Index, last.Value, keyShadowCamera)
-		environment.ShadowCamera = database.Some(decodeCamera(child))
-		child.Finish()
+	if index, ok := r.Last(keyShadowCamera); ok {
+		value := r.Fields()[index].Value
+
+		switch name, named := value.Str(); {
+		case value.IsBlock():
+			child := r.Child(index, value, keyShadowCamera)
+			environment.ShadowCamera = database.Some(decodeCamera(child))
+			child.Finish()
+		case named:
+			environment.ShadowCameraOf = name
+		default:
+			r.Warn(index, value, "%s should be a block or the name of an environment, found %s; ignored", keyShadowCamera, value.Describe())
+		}
 	}
 
 	return environment
