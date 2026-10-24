@@ -2,7 +2,6 @@ package genes
 
 import (
 	"math"
-	"sort"
 
 	"github.com/kaiser-chris/pdx-parser-go/database"
 	"github.com/kaiser-chris/pdx-parser-go/script"
@@ -25,39 +24,37 @@ type Curve []Point
 // At returns the value of the curve at x. A curve without points is 0
 // everywhere.
 //
-// Points written out of order of X are taken in order of X, keeping the
-// order written between points of the same X, so that two points at one X
-// make a step.
+// The points are walked in the order written: the value is that of the line
+// from the point before the first point at or past x to that point, the
+// first point's before it and the last point's past them all. For points in
+// order of X that is the curve drawn through them, and two points at one X
+// make a step. Victoria 3's greying hair is written { -1 -1 } { 0.7 0 }
+// { 0.6 1.0 }, which taken in order of X would grey the young and not the
+// old; walked as written it greys from 0.7 on, as its other ageing colours
+// do, which is taken to be how the engine reads it.
 func (c Curve) At(x float64) float64 {
 	if len(c) == 0 {
 		return 0
 	}
 
-	points := c
-
-	if !sort.SliceIsSorted(points, func(i, j int) bool { return points[i].X < points[j].X }) {
-		points = append(Curve(nil), c...)
-		sort.SliceStable(points, func(i, j int) bool { return points[i].X < points[j].X })
+	if x <= c[0].X {
+		return c[0].Y
 	}
 
-	if x <= points[0].X {
-		return points[0].Y
-	}
-
-	for index := 1; index < len(points); index++ {
-		from, to := points[index-1], points[index]
+	for index := 1; index < len(c); index++ {
+		from, to := c[index-1], c[index]
 		if x > to.X {
 			continue
 		}
 
-		if to.X == from.X {
+		if to.X <= from.X {
 			return to.Y
 		}
 
 		return from.Y + (to.Y-from.Y)*(x-from.X)/(to.X-from.X)
 	}
 
-	return points[len(points)-1].Y
+	return c[len(c)-1].Y
 }
 
 // Range is the values a strength from 0 to 1 is spread over, linearly:

@@ -237,6 +237,25 @@ type HSVPoint struct {
 	Shift [3]float64
 }
 
+// At returns the shift at a strength of the gene from 0 to 1: each of hue,
+// saturation and value along the curve as a Curve has it, linear between the
+// points and flat beyond the first and the last. A shift without points
+// shifts nothing.
+func (s *HSVShift) At(strength float64) [3]float64 {
+	var shift [3]float64
+
+	for channel := range shift {
+		curve := make(Curve, len(s.Curve))
+		for index, point := range s.Curve {
+			curve[index] = Point{X: point.X, Y: point.Shift[channel]}
+		}
+
+		shift[channel] = curve.At(strength)
+	}
+
+	return shift
+}
+
 // The keys of a morph gene and of the blocks inside it.
 const (
 	keyGroup           = "group"

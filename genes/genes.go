@@ -324,6 +324,28 @@ func (g *Genes) SetAttributes(morph *Morph, strength, at float64, attributes map
 	}
 }
 
+// HSVShift returns how far a morph shifts the hue, saturation and value of a
+// colour of the portrait, hair, skin or eye as the files name them, at a
+// strength of the gene from 0 to 1, at a point of a life from 0 to 1: each of
+// its shifts of that colour at the strength, with the age of the shift
+// applied to each of the three as AtAge says, added up.
+func (g *Genes) HSVShift(morph *Morph, color string, strength, at float64) [3]float64 {
+	var total [3]float64
+
+	for index := range morph.HSVShifts {
+		shift := &morph.HSVShifts[index]
+		if shift.Color != color {
+			continue
+		}
+
+		for channel, value := range shift.At(strength) {
+			total[channel] += g.AtAge(value, shift.Age, at)
+		}
+	}
+
+	return total
+}
+
 // DecalAlpha returns how opaque a decal is at a strength of the gene from 0
 // to 1, at a point of a life from 0 to 1: Decal.Alpha, with the age of the
 // decal applied as AtAge says, kept between 0 and 1. The games hand a decal's

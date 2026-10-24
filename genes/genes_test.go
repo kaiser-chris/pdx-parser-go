@@ -368,11 +368,21 @@ func TestCurve(t *testing.T) {
 		}
 	}
 
-	// Out of order, and a step where two points share an X.
-	shuffled := Curve{{0.7, 0}, {-1, -1}, {0.6, 1}, {0.6, 2}}
-	for _, test := range []struct{ x, want float64 }{{-1, -1}, {0.6, 1}, {0.61, 1.8}, {0.65, 1}, {0.7, 0}} {
-		if got := shuffled.At(test.x); !near(got, test.want) {
-			t.Errorf("shuffled at %g = %g, want %g", test.x, got, test.want)
+	// A step where two points share an X: the first at it, the second past
+	// it.
+	step := Curve{{0, 0}, {0.5, 1}, {0.5, 2}, {1, 2}}
+	for _, test := range []struct{ x, want float64 }{{0.25, 0.5}, {0.5, 1}, {0.75, 2}} {
+		if got := step.At(test.x); !near(got, test.want) {
+			t.Errorf("step at %g = %g, want %g", test.x, got, test.want)
+		}
+	}
+
+	// Victoria 3's greying hair, written out of order, walked as written:
+	// nothing to speak of until 0.7, and wholly from past it.
+	greying := Curve{{-1, -1}, {0.7, 0}, {0.6, 1}}
+	for _, test := range []struct{ x, want float64 }{{-2, -1}, {0.25, -1 + 1.25/1.7}, {0.7, 0}, {0.75, 1}, {1, 1}} {
+		if got := greying.At(test.x); !near(got, test.want) {
+			t.Errorf("greying at %g = %g, want %g", test.x, got, test.want)
 		}
 	}
 
@@ -615,6 +625,46 @@ func TestDecalAlpha(t *testing.T) {
 		if got := genes.DecalAlpha(&test.decal, test.strength, test.at); !near(got, test.want) {
 			t.Errorf("%+v at strength %g, age %g = %g, want %g", test.decal, test.strength, test.at, got, test.want)
 		}
+	}
+}
+
+// The shift of a colour is its curve at the strength, each of hue,
+// saturation and value alone, changed by the age, and added up over the
+// shifts of that colour: Europa Universalis 5's ageing greys the hair by
+// more than it dulls the skin, which another shift of the hair adds to.
+func TestHSVShift(t *testing.T) {
+	genes, _ := read(t, `age_presets = {
+		aged = { mode = multiply curve = { { 0.5 0.0 } { 1.0 1.0 } } }
+	}`)
+
+	morph := &Morph{HSVShifts: []HSVShift{
+		{Color: "hair", Curve: []HSVPoint{{0, [3]float64{0, 0, 0}}, {1, [3]float64{0.1, -1, 0.5}}}, Age: Age{Preset: "aged"}},
+		{Color: "skin", Curve: []HSVPoint{{0, [3]float64{0, -0.25, 0}}}},
+		{Color: "hair", Curve: []HSVPoint{{0, [3]float64{0, 0, 0.1}}}},
+	}}
+
+	for _, test := range []struct {
+		color        string
+		strength, at float64
+		want         [3]float64
+	}{
+		{"hair", 0.5, 0.75, [3]float64{0.025, -0.25, 0.225}},
+		{"hair", 1, 0.25, [3]float64{0, 0, 0.1}},
+		{"skin", 0.9, 0.3, [3]float64{0, -0.25, 0}},
+		{"eye", 1, 1, [3]float64{}},
+	} {
+		got := genes.HSVShift(morph, test.color, test.strength, test.at)
+		for channel := range got {
+			if !near(got[channel], test.want[channel]) {
+				t.Errorf("%s at %g, age %g = %v, want %v", test.color, test.strength, test.at, got, test.want)
+
+				break
+			}
+		}
+	}
+
+	if got := (&HSVShift{}).At(0.5); got != [3]float64{} {
+		t.Errorf("a shift without points = %v", got)
 	}
 }
 
