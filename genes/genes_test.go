@@ -643,6 +643,17 @@ func TestHSVShift(t *testing.T) {
 		{Color: "hair", Curve: []HSVPoint{{0, [3]float64{0, 0, 0.1}}}},
 	}}
 
+	// Victoria 3's greying, whose age is below nothing until 0.7: no shift
+	// before, all of it after.
+	greying := &Morph{HSVShifts: []HSVShift{{Color: "hair", Curve: []HSVPoint{{0, [3]float64{0, -1, 0.8}}}, Age: Age{Mode: ModeMultiply, Curve: Curve{{-1, -1}, {0.7, 0}, {0.6, 1}}}}}}
+	if got := genes.HSVShift(greying, "hair", 0.5, 0.25); got != [3]float64{} {
+		t.Errorf("greying at 0.25 = %v, want none", got)
+	}
+
+	if got := genes.HSVShift(greying, "hair", 0.5, 0.8); !near(got[1], -1) || !near(got[2], 0.8) {
+		t.Errorf("greying at 0.8 = %v, want all of it", got)
+	}
+
 	for _, test := range []struct {
 		color        string
 		strength, at float64

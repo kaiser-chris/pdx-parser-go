@@ -329,6 +329,11 @@ func (g *Genes) SetAttributes(morph *Morph, strength, at float64, attributes map
 // strength of the gene from 0 to 1, at a point of a life from 0 to 1: each of
 // its shifts of that colour at the strength, with the age of the shift
 // applied to each of the three as AtAge says, added up.
+//
+// An age that multiplies a shift by less than nothing shifts it not at all.
+// Victoria 3's greying hair is multiplied by a curve that is below nothing
+// until 0.7, which would otherwise darken and redden the hair of the young;
+// the game draws it in the palette's colour.
 func (g *Genes) HSVShift(morph *Morph, color string, strength, at float64) [3]float64 {
 	var total [3]float64
 
@@ -338,7 +343,15 @@ func (g *Genes) HSVShift(morph *Morph, color string, strength, at float64) [3]fl
 			continue
 		}
 
+		mode, curve, aged := g.Age(shift.Age)
+
 		for channel, value := range shift.At(strength) {
+			if aged && mode != ModeAdd {
+				total[channel] += value * max(curve.At(at), 0)
+
+				continue
+			}
+
 			total[channel] += g.AtAge(value, shift.Age, at)
 		}
 	}
